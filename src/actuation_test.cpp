@@ -1,3 +1,11 @@
+/**
+ * Repeated valve actuation test.
+ * - Starts when a space arrives over Serial.
+ * - Runs five opening and closing cycles.
+ * - Holds open for five seconds per cycle.
+ * - Prints opening and closing times.
+ * - Commands closed after completion or a travel timeout.
+ */
 #include <Arduino.h>
 #include <CanControl.h>
 #include <SPI.h>

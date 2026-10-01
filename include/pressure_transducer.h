@@ -1,10 +1,19 @@
+/**
+ * Analog pressure sensor reader.
+ * - Reads one analog pin.
+ * - Converts sensor voltage to PSI.
+ * - Uses configured voltage limits and maximum pressure.
+ * - Assumes a 5 V, 10-bit ADC. Does not clamp readings.
+ * - Pass false to getPressure() to hide voltage prints.
+ */
 #pragma once
 
 #include <Arduino.h>
 
-class pressure_transducer {
+
+class PressureTransducer {
    public:
-    pressure_transducer(int analogPin, float maxPressurePSI, double minVoltage, double maxVoltage) : analogPin_(analogPin), maxPressurePSI_(maxPressurePSI), minVoltage_(minVoltage), maxVoltage_(maxVoltage) {}
+    PressureTransducer(int analogPin, float maxPressurePSI, double minVoltage, double maxVoltage) : analogPin_(analogPin), maxPressurePSI_(maxPressurePSI), minVoltage_(minVoltage), maxVoltage_(maxVoltage) {}
 
     float getPressure(bool printVoltage = true) const {
         // 0 to 1023

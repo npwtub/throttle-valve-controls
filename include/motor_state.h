@@ -1,9 +1,18 @@
-
+/**
+ * Motor telemetry cache.
+ * - Tracks one SPARK MAX by CAN ID.
+ * - Reads Status 0 and Status 2 frames.
+ * - Stores output, voltage, current, temperature, position, and speed.
+ * - Checks telemetry freshness and target position.
+ * - Leaves commands and movement tracking to the caller.
+ */
 #pragma once
 
 #include <Arduino.h>
+#include <math.h>
 #include <mcp2515.h>
 #include <low_level/low_sparkmax.h>
+
 
 class MotorState
 {
@@ -13,10 +22,6 @@ public:
         : motorID_(motorID)
     {
     }
-
-    // --------------------------------------------------
-    // CAN FRAME PROCESSING
-    // --------------------------------------------------
 
     // Call this for every incoming CAN frame.
     // Returns true if a valid Status 0 or Status 2
@@ -48,7 +53,7 @@ public:
 
         // ----------------------------------------------
         // STATUS 0
-        // Output, voltage, current, temperature, limits
+        // Output %, voltage, current, temperature, limits
         // ----------------------------------------------
         if (baseID == Spark::SPARK_ARB_STATUS_0)
         {
@@ -171,6 +176,17 @@ public:
     bool hasTelemetry() const
     {
         return receivedStatus0_ && receivedStatus2_;
+    }
+
+    // Target and tolerance use motor rotations. Only fresh, finite position
+    // feedback can satisfy this check; callers track feedback since a command.
+    bool atPosition(double target, unsigned long now, double tolerance,
+                    unsigned long timeoutMs) const
+    {
+        return hasStatus2() &&
+               now - lastStatus2_ <= timeoutMs &&
+               isfinite(position_) &&
+               fabs(position_ - target) <= tolerance;
     }
 
     // Check whether both status frames have arrived

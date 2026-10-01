@@ -1,9 +1,15 @@
+/**
+ * Pressure transducer test.
+ * - Reads sensors on A0 and A1.
+ * - Uses a 0.5-4.5 V range for 0-1000 PSI.
+ * - Prints each sensor's voltage and pressure over Serial.
+ */
 #include <Arduino.h>
 #include "pressure_transducer.h"
 #include "config.h"
 
-pressure_transducer pt1 = pressure_transducer(A0, 1000, 0.5, 4.5);
-pressure_transducer pt2 = pressure_transducer(A1, 1000, 0.5, 4.5);
+PressureTransducer pt1 = PressureTransducer(A0, 1000, 0.5, 4.5);
+PressureTransducer pt2 = PressureTransducer(A1, 1000, 0.5, 4.5);
 
 void setup () {
     Serial.begin(Config::BAUD_RATE_LONG);

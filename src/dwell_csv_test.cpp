@@ -1,37 +1,44 @@
+/**
+ * Repeated valve dwell test with CSV logging.
+ * - Starts when a space arrives over Serial.
+ * - Opens every three minutes and holds open for 350 ms.
+ * - Starts the dwell after fresh feedback confirms the open position.
+ * - Logs pressure and motor telemetry at 25 Hz.
+ * - Stops cycling on a travel timeout and keeps commanding closed.
+ */
 #include <Arduino.h>
 #include <CanControl.h>
 #include <SPI.h>
-#include <math.h>
 #include <mcp2515.h>
 
 #include "config.h"
 #include "motor_state.h"
 #include "pressure_transducer.h"
+#include "log.h"
 
 namespace {
 MCP2515 mcp2515(Config::CAN_CS_PIN, 4000000UL);
 CanControl::SparkMax motor(mcp2515, Config::LOX_MOTOR_ID);
 MotorState motorState(Config::LOX_MOTOR_ID);
-pressure_transducer pt1(A0, 1000, 0.5, 4.5);
-pressure_transducer pt2(A1, 1000, 0.5, 4.5);
+PressureTransducer pt1(A0, 1000, 0.5, 4.5);
+PressureTransducer pt2(A1, 1000, 0.5, 4.5);
 
-// 25 Hz logging frequency
-constexpr unsigned long logIntervalMs = 40;
-constexpr unsigned long logIntervalClosedMs = 5000;
-// Motor communication keeps its own 50 Hz schedule, independent of logging.
+ // Motor communication keeps its own 50 Hz schedule, independent of logging.
 constexpr unsigned long controlIntervalMs = 20;
 constexpr unsigned long cycleIntervalMs = 180000;
 constexpr unsigned long timeOpenMs = 350;
 constexpr unsigned long travelTimeoutMs = 2000;
-constexpr double positionTolerance = 0.25;  // Motor rotations, as in dwell_test
 
+// State machine. test state determines the next action of the motor
 enum class State { Waiting,
                    Closed,
                    Opening,
                    Open,
                    Closing,
                    Frozen };
+
 State state = State::Waiting;
+
 unsigned long cycleStart = 0;
 unsigned long stateStart = 0;
 unsigned long lastHeartbeat = 0;
@@ -40,25 +47,19 @@ unsigned long lastLog = 0;
 unsigned long start_ms = 0;
 bool positionReceivedDuringTravel = false;
 
+// sets position to motor
 void commandPosition(double target, unsigned long now) {
     motor.set_position(target, 0, 0, 0);
     lastCommand = now;
 }
 
+// begins to  move motor to the next state setpoint
 void beginTravel(State next, double target, unsigned long now) {
     state = next;
     stateStart = now;
     // Require a new encoder report before accepting the target as reached.
     positionReceivedDuringTravel = false;
     commandPosition(target, now);
-}
-
-bool atPosition(double target, unsigned long now) {
-    // Missing, stale, or non-finite feedback must not complete an actuation.
-    return positionReceivedDuringTravel && motorState.hasStatus2() &&
-           now - motorState.getLastStatus2Time() <= Config::TELEMETRY_TIMEOUT_MS &&
-           isfinite(motorState.getPosition()) &&
-           fabs(motorState.getPosition() - target) <= positionTolerance;
 }
 
 const __FlashStringHelper* stateName() {
@@ -79,49 +80,10 @@ const __FlashStringHelper* stateName() {
     return F("unknown");
 }
 
-void logRow(unsigned long now) {
-    // Suppress the PT helper's voltage messages to keep every row valid CSV.
-    Serial.print(pt1.getPressure(false), 2);
-    Serial.print(',');
-    Serial.print(pt2.getPressure(false), 2);
-    Serial.print(',');
-    Serial.print(now);
-    Serial.print(',');  // Milliseconds since boot
-    // Gear ratio is motor revolutions per valve revolution; report valve degrees.
-    Serial.print(motorState.getPosition() * 360.0 / Config::GEAR_RATIO, 3);
-    Serial.print(',');
-    Serial.print(motorState.getAppliedOutput(), 4);
-    Serial.print(',');
-    Serial.print(motorState.getTemperature(), 1);
-    Serial.print(',');
-    Serial.print(motorState.getAppliedOutputPercent(), 2);
-    Serial.print(',');
-    Serial.print(motorState.getRPM(), 2);
-    Serial.print(',');
-    Serial.print(motorState.getVoltageRaw());
-    Serial.print(',');
-    Serial.print(motorState.getCurrentRaw());
-    Serial.print(',');
-    // These flags distinguish initial cached zeroes from received motor data.
-    Serial.print(motorState.hasStatus0());
-    Serial.print(',');
-    Serial.print(motorState.hasStatus2());
-    Serial.print(',');
-    Serial.print(motorState.hasTelemetry());
-    Serial.print(',');
-    Serial.print(motorState.isFresh(Config::TELEMETRY_TIMEOUT_MS));
-    Serial.print(',');
-    Serial.print(motorState.getLastStatus0Time());
-    Serial.print(',');
-    Serial.print(motorState.getLastStatus2Time());
-    Serial.print(',');
-    Serial.println(stateName());
-}
-
 void freeze(unsigned long now) {
     state = State::Frozen;
     commandPosition(Config::CLOSED_ROTATIONS, now);
-    logRow(now);  // One final CSV row; no further serial output until reset.
+    logRow(&motorState, &pt1, &pt2, now, stateName());// One final CSV row; no further serial output until reset.
     Serial.print("froze after: ");
     Serial.print(now / 1000);
     Serial.println(" seconds");
@@ -165,6 +127,10 @@ void loop() {
         }
     }
 
+    /**
+     * switch determines behavior based on test state. once a certain state has reached
+     * its end state
+     */
     switch (state) {
         case State::Waiting:
             break;
@@ -178,7 +144,10 @@ void loop() {
         case State::Opening:
             if (now - stateStart > travelTimeoutMs) {
                 freeze(now);
-            } else if (atPosition(Config::OPEN_ROTATIONS, now)) {
+            } else if (positionReceivedDuringTravel &&
+                       motorState.atPosition(Config::OPEN_ROTATIONS, now,
+                                             Config::GOAL_POSITION_TOLERANCE,
+                                             Config::TELEMETRY_TIMEOUT_MS)) {
                 // Start the full one-second dwell only after reaching open.
                 state = State::Open;
                 stateStart = now;
@@ -192,7 +161,10 @@ void loop() {
             }
             break;
         case State::Closing:
-            if (atPosition(Config::CLOSED_ROTATIONS, now)) {
+            if (positionReceivedDuringTravel &&
+                motorState.atPosition(Config::CLOSED_ROTATIONS, now,
+                                      Config::GOAL_POSITION_TOLERANCE,
+                                      Config::TELEMETRY_TIMEOUT_MS)) {
                 state = State::Closed;
             } else if (now - stateStart >= travelTimeoutMs) {
                 freeze(now);  // Also stop subsequent cycles if closing fails.
@@ -207,17 +179,11 @@ void loop() {
         const bool openingOrOpen = state == State::Opening || state == State::Open;
         commandPosition(openingOrOpen ? Config::OPEN_ROTATIONS : Config::CLOSED_ROTATIONS, now);
     }
-
-    // Log every 5 seconds while idle; every 40 ms during actuation.
-    const unsigned long interval =
-        (state == State::Closed || state == State::Waiting)
-            ? logIntervalClosedMs
-            : logIntervalMs;
         
     // print at 40ms 25Hz when not frozen, closed, or waiting
-    if (state != State::Frozen && now - lastLog >= interval) {
-        lastLog += interval;
-        if (now - lastLog >= interval) lastLog = now;  // No bursts after delays.
-        logRow(now);
+    if (state != State::Frozen && now - lastLog >= Config::LOG_FREQUENCY_25_HZ) {
+        lastLog += Config::LOG_FREQUENCY_25_HZ;
+        if (now - lastLog >= Config::LOG_FREQUENCY_25_HZ) lastLog = now;  // No bursts after delays.
+        logRow(&motorState, &pt1, &pt2, now, stateName());
     } 
 }

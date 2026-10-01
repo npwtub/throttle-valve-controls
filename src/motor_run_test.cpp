@@ -1,3 +1,10 @@
+/**
+ * Basic motor position test.
+ * - Starts automatically.
+ * - Commands four rotations for two seconds, then two rotations.
+ * - Sends CAN heartbeats to keep the controller enabled.
+ * - Prints motor output, speed, and position over Serial.
+ */
 #include <Arduino.h>
 #include <CanControl.h>
 #include <SPI.h>
