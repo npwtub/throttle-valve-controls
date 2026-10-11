@@ -1,11 +1,11 @@
 /**
  * Valve soak test with CSV logging.
  * - Starts when a space arrives over Serial.
- * - Holds open for two seconds, then closes for a 30-minute soak.
- * - Reopens and logs for 30 seconds after reaching open.
- * - Keeps commanding open after the final opening begins.
+ * - Holds open for two seconds, then closes for a one-hour soak.
+ * - Repeats two seconds open and one second closed after the soak.
  * - Uses fresh position feedback to confirm each movement.
- * - Logs pressure and motor telemetry at 25 Hz until done or frozen.
+ * - Logs pressure and motor telemetry at 25 Hz until frozen.
+ * - Stops cycling on a travel timeout and keeps commanding closed.
  */
 #include <Arduino.h>
 #include <CanControl.h>
@@ -21,15 +21,16 @@ namespace {
 MCP2515 mcp2515(Config::CAN_CS_PIN, 4000000UL);
 CanControl::SparkMax motor(mcp2515, Config::LOX_MOTOR_ID);
 MotorState motorState(Config::LOX_MOTOR_ID);
-PressureTransducer pt1(A0, 1000, 0.5, 4.5);
-PressureTransducer pt2(A1, 1000, 0.5, 4.5);
+PressureTransducer pt1 = PressureTransducer(A2, 1000, 0.47, 4.5);
+PressureTransducer pt2 = PressureTransducer(A3, 1000, 0.47, 4.5);
 
 // Change this constant to set the closed wait after the initial actuation.
-constexpr unsigned long soakTimeMs = 30UL * 60UL * 1000UL;
-constexpr unsigned long initialOpenMs = 2000;
-constexpr unsigned long finalOpenLogMs = 30000;
+// constexpr unsigned long soakTimeMs = 60UL * 60UL * 1000UL;
+constexpr unsigned long soakTimeMs = 1000UL;
+constexpr unsigned long openTimeMs = 7000;
+constexpr unsigned long cycleClosedMs = 1000;
 constexpr unsigned long controlIntervalMs = 20;
-constexpr unsigned long travelTimeoutMs = 3000;  // Same as dwell_csv_test
+constexpr unsigned long travelTimeoutMs = 3000;
 
 enum class State {
     Waiting,
@@ -37,9 +38,10 @@ enum class State {
     InitialOpen,
     Closing,
     Soaking,
-    FinalOpening,
-    FinalOpen,
-    Done,
+    CycleOpening,
+    CycleOpen,
+    CycleClosing,
+    CycleClosed,
     Frozen
 };
 State state = State::Waiting;
@@ -82,12 +84,14 @@ const __FlashStringHelper* stateName() {
             return F("closing");
         case State::Soaking:
             return F("soaking");
-        case State::FinalOpening:
-            return F("final_opening");
-        case State::FinalOpen:
-            return F("final_open");
-        case State::Done:
-            return F("done");
+        case State::CycleOpening:
+            return F("cycle_opening");
+        case State::CycleOpen:
+            return F("cycle_open");
+        case State::CycleClosing:
+            return F("cycle_closing");
+        case State::CycleClosed:
+            return F("cycle_closed");
         case State::Frozen:
             return F("motor froze");
     }
@@ -95,13 +99,12 @@ const __FlashStringHelper* stateName() {
 }
 
 void freeze(unsigned long now) {
-    // Initial travel failures abort toward closed, as in the original test.
-    // Once final opening begins, even a timeout must never command closed.
-    if (state != State::FinalOpening) targetPosition = Config::CLOSED_ROTATIONS;
+    // Stop cycling and keep commanding closed after any travel failure.
+    targetPosition = Config::CLOSED_ROTATIONS;
     enterState(State::Frozen, now);
     commandPosition(now);
     logRow(&motorState, &pt1, &pt2, now, stateName());
-  // Final fault row, followed by permanent serial silence.
+    // Final fault row, followed by permanent serial silence.
 }
 }  // namespace
 
@@ -110,7 +113,7 @@ void setup() {
     mcp2515.reset();
     mcp2515.setBitrate(CAN_1000KBPS, MCP_8MHZ);
     mcp2515.setNormalOneShotMode();
-    Serial.println(F("pt1_psi,pt2_psi,timestamp_ms,position_deg,output,temp_c,output_percent,rpm,voltage_raw,current_raw,has_status0,has_status2,has_telemetry,is_fresh,last_status0_ms,last_status2_ms,state"));
+    printLogHeader(&motorState, &pt1, &pt2);
     lastLog = millis();
 }
 
@@ -129,7 +132,7 @@ void loop() {
         }
     }
     const unsigned long now = millis();
-    // Heartbeats run in every state, including before start and after logging ends.
+    // Heartbeats run in every state, including before start and after a fault.
     if (now - lastHeartbeat >= controlIntervalMs) {
         CanControl::send_heartbeat(mcp2515, CanControl::default_heartbeat());
         lastHeartbeat = now;
@@ -146,15 +149,22 @@ void loop() {
             break;
         case State::InitialOpening:
         case State::Closing:
-        case State::FinalOpening:
+        case State::CycleOpening:
+        case State::CycleClosing:
             // Reject late arrival as well as missing or stale position feedback.
             if (now - stateStart > travelTimeoutMs) {
                 freeze(now);
             } else if (positionReceivedDuringTravel &&
                        motorState.atPosition(targetPosition, now, Config::GOAL_POSITION_TOLERANCE,
                                              Config::TELEMETRY_TIMEOUT_MS)) {
-                const State next = state == State::InitialOpening ? State::InitialOpen : state == State::Closing ? State::Soaking
-                                                                                                                 : State::FinalOpen;
+                State next = State::CycleOpen;
+                if (state == State::InitialOpening) {
+                    next = State::InitialOpen;
+                } else if (state == State::Closing) {
+                    next = State::Soaking;
+                } else if (state == State::CycleClosing) {
+                    next = State::CycleClosed;
+                }
                 enterState(next, now);
                 // Capture the arrival, then continue at this state's log interval.
                 logRow(&motorState, &pt1, &pt2, now, stateName());
@@ -164,32 +174,38 @@ void loop() {
             break;
         case State::InitialOpen:
             // Hold for two full seconds AFTER the valve reaches open.
-            if (now - stateStart >= initialOpenMs) {
+            if (now - stateStart >= openTimeMs) {
                 beginTravel(State::Closing, Config::CLOSED_ROTATIONS, now);
             }
             break;
         case State::Soaking:
-            // The 30-minute wait begins only once closed position is confirmed.
+            // The one-hour soak begins only once closed position is confirmed.
             if (now - stateStart >= soakTimeMs) {
-                beginTravel(State::FinalOpening, Config::OPEN_ROTATIONS, now);
+                beginTravel(State::CycleOpening, Config::OPEN_ROTATIONS, now);
             }
             break;
-        case State::FinalOpen:
-            // Stop logging 30 seconds after confirmed opening, but hold open forever.
-            if (now - stateStart >= finalOpenLogMs) enterState(State::Done, now);
+        case State::CycleOpen:
+            // Each dwell starts after fresh feedback confirms arrival.
+            if (now - stateStart >= openTimeMs) {
+                beginTravel(State::CycleClosing, Config::CLOSED_ROTATIONS, now);
+            }
             break;
-        case State::Done:
+        case State::CycleClosed:
+            if (now - stateStart >= cycleClosedMs) {
+                beginTravel(State::CycleOpening, Config::OPEN_ROTATIONS, now);
+            }
+            break;
         case State::Frozen:
             break;
     }
 
-    // The target remains OPEN after final opening, including in Done/Frozen.
+    // Keep commanding the current target, including closed after a fault.
     // Waiting sends no position command; it only receives telemetry and heartbeats.
     if (state != State::Waiting && now - lastCommand >= controlIntervalMs) {
         commandPosition(now);
     }
 
-    if (state != State::Done && state != State::Frozen && now - lastLog >= Config::LOG_FREQUENCY_25_HZ) {
+    if (state != State::Frozen && now - lastLog >= Config::LOG_FREQUENCY_25_HZ) {
         lastLog += Config::LOG_FREQUENCY_25_HZ;
         // Skip missed samples instead of sending a burst after a delay.
         if (now - lastLog >= Config::LOG_FREQUENCY_25_HZ) lastLog = now;

@@ -8,8 +8,8 @@
 #include "pressure_transducer.h"
 #include "config.h"
 
-PressureTransducer pt1 = PressureTransducer(A0, 1000, 0.5, 4.5);
-PressureTransducer pt2 = PressureTransducer(A1, 1000, 0.5, 4.5);
+PressureTransducer pt1 = PressureTransducer(A2, 1000, 0.47, 4.5);
+PressureTransducer pt2 = PressureTransducer(A3, 1000, 0.47, 4.5);
 
 void setup () {
     Serial.begin(Config::BAUD_RATE_LONG);

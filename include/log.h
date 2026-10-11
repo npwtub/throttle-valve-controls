@@ -56,3 +56,19 @@ static void logRow(const MotorState* motorState, const PressureTransducer* pt1, 
     }
     Serial.println(stateName);
 }
+
+static void printLogHeader(const MotorState* motorState, const PressureTransducer* pt1, const PressureTransducer* pt2){
+    Serial.print("timestamp_ms,");
+
+    if (pt1 != nullptr) {
+        Serial.print("pt1_psi,");
+    }
+    if (pt2 != nullptr) {
+        Serial.print("pt2_psi,");
+    }
+
+    if (motorState != nullptr) {
+        Serial.print("position_deg,motor_temp_c,output_percent,rpm,voltage,current,has_status_0,has_status_2,has_telemetry,is_fresh,last_status_0_time,last_status_2_time");
+    }
+    Serial.println("state");
+}

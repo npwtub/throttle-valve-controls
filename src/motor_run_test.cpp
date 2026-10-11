@@ -55,10 +55,10 @@ void loop() {
     }
 
     if (now - startTime < 2000) {
-        motor.set_position(4, 0, 0, 0);
+        motor.set_position(0, 0, 0, 0);
         // motor.set_duty_cycle(0.1);
     } else {
-        motor.set_position(2, 0, 0, 0);
+        motor.set_position(0, 0, 0, 0);
         // motor.set_duty_cycle(0.0);
     }
 
