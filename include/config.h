@@ -5,6 +5,9 @@
  * - Converts valve angles to motor rotations.
  * - Sets the target position tolerance.
  */
+
+#pragma once
+
 #include <Arduino.h>
 
 namespace Config {
