@@ -44,12 +44,8 @@ constexpr double ptMaxVoltage = 0.02000 * ptSenseResistanceOhms;
  */
 constexpr double startAngleDeg = Config::CLOSED_THETA;
 constexpr double endAngleDeg = Config::OPEN_THETA;
-constexpr double angleIncrementDeg = 5.0;
-constexpr unsigned long dwellTimeMs = 1000;
-
-// the old arduino test waited ten seconds after start, so keep that behavior
-// here but leave it easy to change if the test procedure changes.
-constexpr unsigned long startDelayMs = 10000;
+constexpr double angleIncrementDeg = 10.0;
+constexpr unsigned long dwellTimeMs = 3000;
 
 // motor commands and heartbeats are refreshed every 20 ms, same basic timing
 // used by the other tests.
@@ -61,6 +57,7 @@ constexpr unsigned long travelTimeoutMs = 3000;
 
 
 
+
 MCP2515 mcp2515(Config::CAN_CS_PIN, 4000000UL);
 CanControl::SparkMax motor(mcp2515, motorID);
 MotorState motorState(motorID);
@@ -69,10 +66,8 @@ PressureTransducer ptDown(A1, ptMaxPsi, ptMinVoltage, ptMaxVoltage);
 
 enum class State {
     Waiting,
-    StartDelay,
-    Opening,
+    Moving,
     AtSetpoint,
-    Closing,
     Finished,
     TravelTimeout
 };
@@ -85,6 +80,7 @@ unsigned long lastCommand = 0;
 unsigned long lastLog = 0;
 
 bool positionReceivedDuringTravel = false;
+bool descendingSweep = false;
 double targetAngleDeg = startAngleDeg;
 double targetPositionRotations = Config::CLOSED_ROTATIONS;
 
@@ -128,19 +124,20 @@ const __FlashStringHelper* stateName() {
     switch (state) {
         case State::Waiting:
             return F("waiting");
-        case State::StartDelay:
-            return F("start_delay");
-        case State::Opening:
-            return F("opening");
+
+        case State::Moving:
+            return descendingSweep ? F("moving_down") : F("moving_up");
+
         case State::AtSetpoint:
-            return F("at_setpoint");
-        case State::Closing:
-            return F("closing");
+            return descendingSweep ? F("at_setpoint_down") : F("at_setpoint_up");
+
         case State::Finished:
             return F("finished");
+
         case State::TravelTimeout:
             return F("travel_timeout");
     }
+
     return F("unknown");
 }
 
@@ -172,17 +169,63 @@ void travelTimeout(unsigned long now) {
     logRow(&motorState, &ptUp, &ptDown, now, stateName());
 }
 
-void advanceSetpointOrClose(unsigned long now) {
-    if (targetAngleDeg < endAngleDeg - angleEpsilonDeg) {
-        double nextAngle = targetAngleDeg + angleIncrementDeg;
-        if (nextAngle > endAngleDeg) {
-            nextAngle = endAngleDeg;
+void finishTest(unsigned long now) {
+    targetAngleDeg = Config::CLOSED_THETA;
+    targetPositionRotations = Config::CLOSED_ROTATIONS;
+
+    enterState(State::Finished, now);
+    commandTarget(now);
+
+    logRow(&motorState, &ptUp, &ptDown, now, stateName());
+}
+
+void advanceSetpointOrFinish(unsigned long now) {
+    if (!descendingSweep) {
+        // keep stepping upward until we reach the fully open setpoint.
+        if (targetAngleDeg < endAngleDeg - angleEpsilonDeg) {
+            double nextAngle = targetAngleDeg + angleIncrementDeg;
+
+            if (nextAngle > endAngleDeg) {
+                nextAngle = endAngleDeg;
+            }
+
+            beginTravel(State::Moving, nextAngle, now);
+            return;
         }
-        beginTravel(State::Opening, nextAngle, now);
+
+        /**
+         * once the top setpoint finishes its dwell, reverse direction and walk
+         * back through the same characterization angles. logging both directions
+         * lets us compare the measured behavior at the same valve angle depending
+         * on whether we approached it while opening or closing.
+         */
+        descendingSweep = true;
+
+        double nextAngle = endAngleDeg - angleIncrementDeg;
+
+        if (nextAngle < startAngleDeg) {
+            nextAngle = startAngleDeg;
+        }
+
+        beginTravel(State::Moving, nextAngle, now);
         return;
     }
 
-    beginTravel(State::Closing, Config::CLOSED_THETA, now);
+    // keep stepping downward until we return to the starting angle.
+    if (targetAngleDeg > startAngleDeg + angleEpsilonDeg) {
+        double nextAngle = targetAngleDeg - angleIncrementDeg;
+
+        if (nextAngle < startAngleDeg) {
+            nextAngle = startAngleDeg;
+        }
+
+        beginTravel(State::Moving, nextAngle, now);
+        return;
+    }
+
+    // the starting angle already corresponds to closed, so after its final
+    // three-second dwell the characterization is complete.
+    finishTest(now);
 }
 }  // namespace
 
@@ -225,10 +268,7 @@ void loop() {
     // same simple operator-start idea as the old sketch without blocking the loop.
     for (uint8_t count = 0; count < 16 && Serial.available() > 0; ++count) {
         if (Serial.read() == ' ' && state == State::Waiting) {
-            targetAngleDeg = Config::CLOSED_THETA;
-            targetPositionRotations = Config::CLOSED_ROTATIONS;
-            enterState(State::StartDelay, now);
-            commandTarget(now);
+            beginTravel(State::Moving, startAngleDeg, now);
         }
     }
 
@@ -236,13 +276,7 @@ void loop() {
         case State::Waiting:
             break;
 
-        case State::StartDelay:
-            if (now - stateStart >= startDelayMs) {
-                beginTravel(State::Opening, startAngleDeg, now);
-            }
-            break;
-
-        case State::Opening:
+        case State::Moving:
             // use the same motor-position tolerance as the bench-tested tests. the
             // spark max can settle a little short of the exact requested angle, so
             // a tighter cda-only tolerance can call a healthy settled move a timeout.
@@ -256,27 +290,12 @@ void loop() {
                 travelTimeout(now);
             }
             break;
+            
 
         case State::AtSetpoint:
             // start the dwell only after fresh feedback says we actually got there.
             if (now - stateStart >= dwellTimeMs) {
-                advanceSetpointOrClose(now);
-            }
-            break;
-
-        case State::Closing:
-            if (positionReceivedDuringTravel &&
-                motorState.atPosition(Config::CLOSED_ROTATIONS,
-                                      now,
-                                      Config::GOAL_POSITION_TOLERANCE,
-                                      Config::TELEMETRY_TIMEOUT_MS)) {
-                targetAngleDeg = Config::CLOSED_THETA;
-                targetPositionRotations = Config::CLOSED_ROTATIONS;
-                enterState(State::Finished, now);
-                commandTarget(now);
-                logRow(&motorState, &ptUp, &ptDown, now, stateName());
-            } else if (now - stateStart >= travelTimeoutMs) {
-                travelTimeout(now);
+                advanceSetpointOrFinish(now);
             }
             break;
 
