@@ -155,7 +155,6 @@ void loop() {
         case TIMEOUT:
             delay(20);
             motor.set_position(0, 0, 0, 0);
-            Serial.print("Position: ");
             Serial.println(motorState.getPosition());
             break;
     }

@@ -20,8 +20,8 @@ namespace {
 MCP2515 mcp2515(Config::CAN_CS_PIN, 4000000UL);
 CanControl::SparkMax motor(mcp2515, Config::LOX_MOTOR_ID);
 MotorState motorState(Config::LOX_MOTOR_ID);
-PressureTransducer pt1(A0, 1000, 0.5, 4.5);
-PressureTransducer pt2(A1, 1000, 0.5, 4.5);
+PressureTransducer pt1 = PressureTransducer(A2, 1000, 0.47, 4.5);
+PressureTransducer pt2 = PressureTransducer(A3, 1000, 0.47, 4.5);
 
  // Motor communication keeps its own 50 Hz schedule, independent of logging.
 constexpr unsigned long controlIntervalMs = 20;
@@ -95,7 +95,7 @@ void setup() {
     mcp2515.reset();
     mcp2515.setBitrate(CAN_1000KBPS, MCP_8MHZ);
     mcp2515.setNormalOneShotMode();
-    Serial.println(F("pt1_psi,pt2_psi,timestamp_ms,position_deg,output,temp_c,output_percent,rpm,voltage_raw,current_raw,has_status0,has_status2,has_telemetry,is_fresh,last_status0_ms,last_status2_ms,state"));
+    printLogHeader(&motorState, &pt1, &pt2);
     lastLog = millis();
 }
 

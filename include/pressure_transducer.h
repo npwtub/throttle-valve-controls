@@ -19,12 +19,12 @@ class PressureTransducer {
         // 0 to 1023
         int rawValue = analogRead(analogPin_);
 
-        double voltage = 5.0 * rawValue / 1023.0;
+        double voltage = 4.988 * rawValue / 1023.0;
         if (printVoltage) {
             Serial.print("Voltage: ");
             Serial.print(voltage);
         }
-        // range from 1-5 volts
+
         double pressurePSI = (voltage - minVoltage_) * (maxPressurePSI_ / (maxVoltage_ - minVoltage_));
         return pressurePSI;
     }
