@@ -30,3 +30,4 @@ namespace Config {
     constexpr double CLOSED_ROTATIONS = (CLOSED_THETA / 360.0) * GEAR_RATIO;
 
     constexpr double GOAL_POSITION_TOLERANCE = 0.20; // motor rotations away from goal position
+}
