@@ -18,17 +18,28 @@
 #include "pressure_transducer.h"
 
 namespace {
+// everything below here is specific to this characterization test, so keeping it
+// local avoids filling the shared config with knobs that no other test uses.
+constexpr uint8_t motorID = Config::LOX_MOTOR_ID;
+
+constexpr float ptMaxPsi = 600.0f;
+constexpr double ptSenseResistanceOhms = 150.0;
+constexpr double ptMinVoltage = 0.00425 * ptSenseResistanceOhms;
+constexpr double ptMaxVoltage = 0.02000 * ptSenseResistanceOhms;
+
+constexpr double startAngleDeg = Config::CLOSED_THETA;
+constexpr double endAngleDeg = Config::OPEN_THETA;
+constexpr double angleIncrementDeg = 5.0;
+constexpr unsigned long dwellTimeMs = 1000;
+constexpr unsigned long startDelayMs = 10000;
+constexpr unsigned long controlIntervalMs = 20;
+constexpr unsigned long travelTimeoutMs = 3000;
+
 MCP2515 mcp2515(Config::CAN_CS_PIN, 4000000UL);
-CanControl::SparkMax motor(mcp2515, Config::CDA_MOTOR_ID);
-MotorState motorState(Config::CDA_MOTOR_ID);
-PressureTransducer ptUp(A0,
-                        Config::CDA_PT_MAX_PSI,
-                        Config::CDA_PT_MIN_VOLTAGE,
-                        Config::CDA_PT_MAX_VOLTAGE);
-PressureTransducer ptDown(A1,
-                          Config::CDA_PT_MAX_PSI,
-                          Config::CDA_PT_MIN_VOLTAGE,
-                          Config::CDA_PT_MAX_VOLTAGE);
+CanControl::SparkMax motor(mcp2515, motorID);
+MotorState motorState(motorID);
+PressureTransducer ptUp(A0, ptMaxPsi, ptMinVoltage, ptMaxVoltage);
+PressureTransducer ptDown(A1, ptMaxPsi, ptMinVoltage, ptMaxVoltage);
 
 enum class State {
     Waiting,
@@ -37,7 +48,7 @@ enum class State {
     AtSetpoint,
     Closing,
     Finished,
-    Frozen
+    TravelTimeout
 };
 
 State state = State::Waiting;
@@ -48,18 +59,18 @@ unsigned long lastCommand = 0;
 unsigned long lastLog = 0;
 
 bool positionReceivedDuringTravel = false;
-double targetAngleDeg = Config::CDA_START_ANGLE_DEG;
+double targetAngleDeg = startAngleDeg;
 double targetPositionRotations = Config::CLOSED_ROTATIONS;
 
 constexpr double angleEpsilonDeg = 1e-6;
 
-static_assert(Config::CDA_ANGLE_INCREMENT_DEG > 0.0,
+static_assert(angleIncrementDeg > 0.0,
               "CDA angle increment must be positive");
-static_assert(Config::CDA_START_ANGLE_DEG >= Config::CLOSED_THETA,
+static_assert(startAngleDeg >= Config::CLOSED_THETA,
               "CDA starting angle cannot be below the closed angle");
-static_assert(Config::CDA_END_ANGLE_DEG <= Config::OPEN_THETA,
+static_assert(endAngleDeg <= Config::OPEN_THETA,
               "CDA ending angle cannot exceed the fully-open angle");
-static_assert(Config::CDA_START_ANGLE_DEG <= Config::CDA_END_ANGLE_DEG,
+static_assert(startAngleDeg <= endAngleDeg,
               "CDA starting angle must not exceed the ending angle");
 
 // turns a valve angle into the motor encoder position the spark max expects.
@@ -101,8 +112,8 @@ const __FlashStringHelper* stateName() {
             return F("closing");
         case State::Finished:
             return F("finished");
-        case State::Frozen:
-            return F("motor_froze");
+        case State::TravelTimeout:
+            return F("travel_timeout");
     }
     return F("unknown");
 }
@@ -117,28 +128,29 @@ bool isPositionFrame(const struct can_frame& frame) {
 
     const uint32_t id = frame.can_id & CAN_EFF_MASK;
     const uint8_t receivedMotorID = id & Spark::SPARK_DEVICE_ID_MASK;
-    if (receivedMotorID != Config::CDA_MOTOR_ID) return false;
+    if (receivedMotorID != motorID) return false;
 
     const uint32_t baseID = id & ~Spark::SPARK_DEVICE_ID_MASK;
     return baseID == Spark::SPARK_ARB_STATUS_2;
 }
 
-void freeze(unsigned long now) {
-    // if a move times out, fail safe by keeping the target at closed.
+void travelTimeout(unsigned long now) {
+    // this state means the move timed out, not necessarily that the motor itself
+    // froze. keep the fail-safe behavior and command the valve back closed.
     targetAngleDeg = Config::CLOSED_THETA;
     targetPositionRotations = Config::CLOSED_ROTATIONS;
-    enterState(State::Frozen, now);
+    enterState(State::TravelTimeout, now);
     commandTarget(now);
 
-    // grab one last row with the failure state, then stop the normal logger.
+    // grab one last row with the timeout state, then stop the normal logger.
     logRow(&motorState, &ptUp, &ptDown, now, stateName());
 }
 
 void advanceSetpointOrClose(unsigned long now) {
-    if (targetAngleDeg < Config::CDA_END_ANGLE_DEG - angleEpsilonDeg) {
-        double nextAngle = targetAngleDeg + Config::CDA_ANGLE_INCREMENT_DEG;
-        if (nextAngle > Config::CDA_END_ANGLE_DEG) {
-            nextAngle = Config::CDA_END_ANGLE_DEG;
+    if (targetAngleDeg < endAngleDeg - angleEpsilonDeg) {
+        double nextAngle = targetAngleDeg + angleIncrementDeg;
+        if (nextAngle > endAngleDeg) {
+            nextAngle = endAngleDeg;
         }
         beginTravel(State::Opening, nextAngle, now);
         return;
@@ -178,7 +190,7 @@ void loop() {
     const unsigned long now = millis();
 
     // keep the spark max heartbeat going so the controller stays enabled.
-    if (now - lastHeartbeat >= Config::CDA_CONTROL_INTERVAL_MS) {
+    if (now - lastHeartbeat >= controlIntervalMs) {
         CanControl::send_heartbeat(mcp2515, CanControl::default_heartbeat());
         lastHeartbeat = now;
     }
@@ -199,26 +211,29 @@ void loop() {
             break;
 
         case State::StartDelay:
-            if (now - stateStart >= Config::CDA_START_DELAY_MS) {
-                beginTravel(State::Opening, Config::CDA_START_ANGLE_DEG, now);
+            if (now - stateStart >= startDelayMs) {
+                beginTravel(State::Opening, startAngleDeg, now);
             }
             break;
 
         case State::Opening:
+            // use the same motor-position tolerance as the bench-tested tests. the
+            // spark max can settle a little short of the exact requested angle, so
+            // a tighter cda-only tolerance can call a healthy settled move a timeout.
             if (positionReceivedDuringTravel &&
                 motorState.atPosition(targetPositionRotations,
                                       now,
-                                      Config::CDA_POSITION_TOLERANCE_ROTATIONS,
+                                      Config::GOAL_POSITION_TOLERANCE,
                                       Config::TELEMETRY_TIMEOUT_MS)) {
                 enterState(State::AtSetpoint, now);
-            } else if (now - stateStart >= Config::CDA_TRAVEL_TIMEOUT_MS) {
-                freeze(now);
+            } else if (now - stateStart >= travelTimeoutMs) {
+                travelTimeout(now);
             }
             break;
 
         case State::AtSetpoint:
             // start the dwell only after fresh feedback says we actually got there.
-            if (now - stateStart >= Config::CDA_DWELL_TIME_MS) {
+            if (now - stateStart >= dwellTimeMs) {
                 advanceSetpointOrClose(now);
             }
             break;
@@ -227,27 +242,27 @@ void loop() {
             if (positionReceivedDuringTravel &&
                 motorState.atPosition(Config::CLOSED_ROTATIONS,
                                       now,
-                                      Config::CDA_POSITION_TOLERANCE_ROTATIONS,
+                                      Config::GOAL_POSITION_TOLERANCE,
                                       Config::TELEMETRY_TIMEOUT_MS)) {
                 targetAngleDeg = Config::CLOSED_THETA;
                 targetPositionRotations = Config::CLOSED_ROTATIONS;
                 enterState(State::Finished, now);
                 commandTarget(now);
                 logRow(&motorState, &ptUp, &ptDown, now, stateName());
-            } else if (now - stateStart >= Config::CDA_TRAVEL_TIMEOUT_MS) {
-                freeze(now);
+            } else if (now - stateStart >= travelTimeoutMs) {
+                travelTimeout(now);
             }
             break;
 
         case State::Finished:
-        case State::Frozen:
+        case State::TravelTimeout:
             break;
     }
 
     // keep refreshing the position command after the test starts. once we finish
-    // or freeze, the repeated command is intentionally just the closed position.
+    // or time out, the repeated command is intentionally just the closed position.
     if (state != State::Waiting &&
-        now - lastCommand >= Config::CDA_CONTROL_INTERVAL_MS) {
+        now - lastCommand >= controlIntervalMs) {
         commandTarget(now);
     }
 
@@ -258,7 +273,7 @@ void loop() {
      * the same general workflow as the ereg paper: get the valve characterization
      * data first, then use that measured relationship in the control model later.
      */
-    if (state != State::Finished && state != State::Frozen &&
+    if (state != State::Finished && state != State::TravelTimeout &&
         now - lastLog >= Config::LOG_FREQUENCY_25_HZ) {
         lastLog += Config::LOG_FREQUENCY_25_HZ;
         // if we miss a sample, skip it instead of dumping a burst of old timestamps.
