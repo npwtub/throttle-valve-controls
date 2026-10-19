@@ -1,0 +1,12 @@
+Verification — October 16, 2026
+
+All five PlatformIO environments: SUCCESS (motor_test, actuation_test, pt_test, dwell_test, dwell_soak).
+Full SD path compiled with a temporary test-only chip-select value, then restored to -1:
+RAM 3,768/8,192 bytes (46.0%); flash 32,166/253,952 bytes (12.7%).
+No compiler warnings reported in the final build logs.
+15 Python console tests passed: explicit commands, no start on connection/status,
+duplicate start rejection, short writes, error responses, fragmented messages,
+unexpected reboot, bounded diagnostic queue behavior, completed report handling.
+No hardware tests, uploads, serial connections, or valve commands were performed.
+No claim of bounded SD latency or achieved 100 Hz sampling is made.
+The delivered source has the SD pin unset; binaries and build caches are excluded.
