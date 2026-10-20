@@ -16,7 +16,9 @@ public:
         TestStarted,
         SdWriteFailed,
         LogStopRequested,
-        LogClosed
+        LogClosed,
+        ActuationComplete,
+        ActuationTimeout
     };
 
     bool push(Code code) {
@@ -85,6 +87,10 @@ private:
                 return F("# SD_WRITE_FAILED\n");
             case Code::LogStopRequested:
                 return F("# LOG_STOP_REQUESTED\n");
+            case Code::ActuationComplete:
+                return F("# ACTUATION_COMPLETE\n");
+            case Code::ActuationTimeout:
+                return F("# ACTUATION_TIMEOUT\n");
             case Code::LogClosed:
                 return F("# LOG_CLOSED\n");
         }

@@ -1,4 +1,9 @@
-# SD logging update — start here
+> Updated October 20, 2026: use the sd-card-logging branch. The additional
+> actuation_sd environment logs motor-only five-cycle actuations; see
+> HANDOFF_2026-10-20.md for behavior and the review/test sequence. SD CS is
+> configured as pin 9, and the CSV column is timestamp_unix_ms.
+
+# SD logging update â€” start here
 
 This is a complete updated source project. Open this folder in VS Code (the folder containing platformio.ini). Your original project was not overwritten. No firmware has been uploaded.
 
@@ -16,7 +21,7 @@ This is a complete updated source project. Open this folder in VS Code (the fold
 
 ## What still needs your team
 
-1. Confirm the SD module's actual chip-select wiring and electrical compatibility. In include/log_config.h, change only the default SD_LOG_CS_PIN value from -1 to that confirmed pin. It must not conflict with CAN pin 10, Mega SPI pins 50/51/52, serial pins 0/1, pressure inputs A2/A3, or other hardware in use. The software cannot discover every wiring conflict. Pin 4 used during compilation was only a test placeholder, not a wiring recommendation.
+1. Confirm the SD module's actual chip-select wiring and electrical compatibility. In include/log_config.h, verify that SD_LOG_CS_PIN=9 matches the physical wiring; change it only to the confirmed pin. It must not conflict with CAN pin 10, Mega SPI pins 50/51/52, serial pins 0/1, pressure inputs A2/A3, or other hardware in use. The software cannot discover every wiring conflict. Pin 4 used during compilation was only a test placeholder, not a wiring recommendation.
 2. Confirm the required control deadline. This update preserves the existing 20 ms (50 Hz) heartbeat/position-command schedule. loopBudgetUs=5000 is a diagnostic threshold based on the original 200 Hz task, not an implemented 200 Hz controller. Logging requests a record every 10 ms (100 Hz).
 3. Confirm required test duration. At the maximum 256-byte record size and 100 Hz, 64 MiB holds about 43 minutes plus allowance for the header. Real rows may be shorter. Increase reservedBytes before building if needed, subject to card capacity and startup/closure timing.
 4. Measure hardware behavior. Preallocation and buffering do NOT make the synchronous SD library nonblocking. Writes, card checks, and especially truncation/closure can delay CAN servicing. Initialization can pause heartbeats before the test starts. If measured worst-case timing exceeds the team's accepted deadline, this prototype does not meet the requirement; consider a separate logging processor or an architecture with demonstrated bounded storage operations.
@@ -29,7 +34,7 @@ In the VS Code terminal at this project's root:
     python valve_log_console.py --help
     python -m unittest discover -s tests -v
 
-In PlatformIO, build dwell_test (or use pio run to build all environments). No Arduino is needed for these checks. An unset SD pin deliberately prevents START on hardware, but still permits compiling the project.
+In PlatformIO, build dwell_test (or use pio run to build all environments). No Arduino is needed for these checks. An invalid/unset SD pin deliberately prevents START on hardware; the current configured pin is 9.
 
 ## Hardware session (with the test operator)
 

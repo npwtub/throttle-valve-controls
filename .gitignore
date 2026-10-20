@@ -1,2 +1,7 @@
 .pio/
 .vscode/
+
+# Local Python caches and console captures
+__pycache__/
+*.pyc
+valve_console_*.txt

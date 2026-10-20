@@ -1,12 +1,31 @@
-Verification — October 16, 2026
+Verification status - October 20, 2026
 
-All five PlatformIO environments: SUCCESS (motor_test, actuation_test, pt_test, dwell_test, dwell_soak).
-Full SD path compiled with a temporary test-only chip-select value, then restored to -1:
-RAM 3,768/8,192 bytes (46.0%); flash 32,166/253,952 bytes (12.7%).
-No compiler warnings reported in the final build logs.
-15 Python console tests passed: explicit commands, no start on connection/status,
-duplicate start rejection, short writes, error responses, fragmented messages,
-unexpected reboot, bounded diagnostic queue behavior, completed report handling.
-No hardware tests, uploads, serial connections, or valve commands were performed.
-No claim of bounded SD latency or achieved 100 Hz sampling is made.
-The delivered source has the SD pin unset; binaries and build caches are excluded.
+Target review branch: sd-card-logging. SD chip-select setting: 9.
+CSV time label: timestamp_unix_ms (Unix epoch milliseconds).
+
+All seven PlatformIO environments compiled successfully in the isolated source copy:
+ motor_test, actuation_test, pt_test, dwell_test, dwell_soak,
+ feedforward_test, actuation_sd.
+No compiler warnings/errors reported in this build.
+actuation_sd: static RAM 3,748/8,192 bytes (45.8%); flash 31,882/253,952 (12.6%).
+feedforward_test: static RAM 558/8,192 bytes (6.8%); flash 8,694/253,952 (3.4%).
+Static memory figures do not include peak stack/heap use.
+
+Actual portable C++ model tests: 1,208 checks passed.
+Portable profile/actuation sequence tests: 4,074 checks passed per profile selection.
+Selections 0, 1 and 2 were each compiled and tested.
+Python console regression tests: 15 passed.
+Host tests exercise arithmetic/state transitions, not Arduino peripherals or physical response.
+
+Original actuation_test and dwell_test source files are unchanged by this October 20 update.
+New actuation_sd combines motor actuation and shared logging without PT inputs.
+STOP affects logging only; completion/timeout retain the existing closed-target semantics.
+No firmware upload, physical motor command, SD card, CAN-bus, flow, or timing test was performed.
+No guarantee of nonblocking SD writes, achieved 100 Hz, UTC millisecond accuracy,
+or calibrated pressure/thrust response is claimed.
+
+Feedforward data/profile timing/outlet restriction remain synthetic examples.
+The final profile shapes and profile-level-to-pressure mapping await Noah's specification.
+The AI-assisted feedforward_test remains a calculation reference.
+Marshall's own test-writing exercise is in examples/feedforward_student_test.cpp.example.
+Hardware integration and student understanding/review remain outstanding.

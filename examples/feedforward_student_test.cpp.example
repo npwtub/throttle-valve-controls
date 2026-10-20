@@ -1,0 +1,26 @@
+// STUDENT STARTER: Marshall completes this with review from Noah.
+// This is deliberately .cpp.example, outside src, and NOT a runnable controller.
+// Do not upload an unfinished program to an active setup.
+#include <Arduino.h>
+#include "feedforward_model.h"
+#include "feedforward_data.h"
+#include "feedforward_profiles.h"
+
+void setup() {
+    Serial.begin(115200);
+    // TODO 1: Print that this is a calculation-only test using synthetic data.
+    // TODO 2: Evaluate the documented fixed-input example with predict().
+    // Check valid() BEFORE reading/using the returned angle.
+    // Print input pressures, required CdA, predicted angle, and status.
+}
+void loop() {
+    // TODO 3: On an explicit serial command, remember a profile start time.
+    // TODO 4: Compute uint32_t elapsedMs = millis() - startMs.
+    // Call TestProfiles::sample(FeedforwardProfiles::selected(), elapsedMs).
+    // Initially print elapsed time, level, and status at a bounded rate.
+    // TODO 5: Handle Invalid and Finished explicitly. Do not restart silently.
+    // TODO 6: After Noah supplies the level-to-pressure mapping, call predict()
+    // with that pressure target and explicitly supplied upstream/backpressure.
+    // No motor commands or CAN initialization in this learning exercise.
+    // Live sensor/motor integration is a separate reviewed step.
+}

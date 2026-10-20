@@ -1,4 +1,4 @@
-"""UTC synchronization and explicit operator commands for the dwell-test prototype.
+"""UTC synchronization and explicit operator commands for the dwell/SD-actuation prototypes.
 
 Run --help without hardware. Opening/closing a serial connection may reset the
 Arduino. Use only before a test, with the team's hardware-test procedure.
@@ -182,6 +182,7 @@ def main():
                 synchronize(session)
                 print("UTC accepted. No valve-start command has been sent.")
                 print("START: issue valve-test start command (moves valve).")
+                print("Behavior depends on uploaded firmware: dwell_test or actuation_sd. Confirm the environment.")
                 print("STOP: stop logging only; valve test continues.")
                 print("STATUS: show logging loss, filename, and timing measurements.")
                 print("QUIT: exit before starting or after confirmed log closure.")
