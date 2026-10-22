@@ -18,23 +18,6 @@
 #include "pressure_transducer.h"
 
 namespace {
-// everything below here is specific to this characterization test, so keeping it
-// local avoids filling the shared config with knobs that no other test uses.
-constexpr uint8_t motorID = Config::LOX_MOTOR_ID;
-
-/**
- * these pressure transducer numbers come straight from the old characterization
- * sketch, so this keeps the new test on the same sensor calibration for now.
- * the bigger reason we care about clean pressure measurements is the same one
- * shown in the ereg paper's water-flow characterization: pressure/flow data at
- * known valve positions is what lets us turn the hardware into a useful valve
- * model instead of just guessing how open the valve really is from angle alone.
- */
-constexpr float ptMaxPsi = 600.0f;
-constexpr double ptSenseResistanceOhms = 150.0;
-constexpr double ptMinVoltage = 0.00425 * ptSenseResistanceOhms;
-constexpr double ptMaxVoltage = 0.02000 * ptSenseResistanceOhms;
-
 /**
  * this is the actual characterization sweep. start angle, end angle, step size,
  * and dwell time are all easy to tweak here depending on how much resolution
@@ -42,27 +25,25 @@ constexpr double ptMaxVoltage = 0.02000 * ptSenseResistanceOhms;
  * before building its feedforward model, while our later analysis will use the
  * logged test data to build the cda vs angle relationship for this valve.
  */
-constexpr double startAngleDeg = Config::CLOSED_THETA;
+// constexpr double startAngleDeg = Config::CLOSED_THETA;
+constexpr double startAngleDeg = 5.0;
 constexpr double endAngleDeg = Config::OPEN_THETA;
 constexpr double angleIncrementDeg = 10.0;
 constexpr unsigned long dwellTimeMs = 3000;
 
 // motor commands and heartbeats are refreshed every 20 ms, same basic timing
 // used by the other tests.
-constexpr unsigned long controlIntervalMs = 20;
+constexpr unsigned long controlIntervalMs = 5;
 
 // this is how long a commanded move can take before the state machine gives up
 // and commands the valve closed.
 constexpr unsigned long travelTimeoutMs = 3000;
 
-
-
-
 MCP2515 mcp2515(Config::CAN_CS_PIN, 4000000UL);
-CanControl::SparkMax motor(mcp2515, motorID);
-MotorState motorState(motorID);
-PressureTransducer ptUp(A0, ptMaxPsi, ptMinVoltage, ptMaxVoltage);
-PressureTransducer ptDown(A1, ptMaxPsi, ptMinVoltage, ptMaxVoltage);
+CanControl::SparkMax motor(mcp2515, Config::LOX_MOTOR_ID);
+MotorState motorState(Config::LOX_MOTOR_ID);
+PressureTransducer ptUp(Config::PT1_INPUT_PIN, Config::PT1_MAX_PSI, Config::PT_MIN_VOLTAGE, Config::PT_MAX_VOLTAGE);
+PressureTransducer ptDown(Config::PT2_INPUT_PIN, Config::PT2_MAX_PSI, Config::PT_MIN_VOLTAGE, Config::PT_MAX_VOLTAGE);
 
 enum class State {
     Waiting,
@@ -95,11 +76,6 @@ static_assert(endAngleDeg <= Config::OPEN_THETA,
 static_assert(startAngleDeg <= endAngleDeg,
               "CDA starting angle must not exceed the ending angle");
 
-// turns a valve angle into the motor encoder position the spark max expects.
-double angleToMotorRotations(double valveAngleDeg) {
-    return (valveAngleDeg / 360.0) * Config::GEAR_RATIO;
-}
-
 void commandTarget(unsigned long now) {
     motor.set_position(targetPositionRotations, 0, 0, 0);
     lastCommand = now;
@@ -114,7 +90,7 @@ void enterState(State next, unsigned long now) {
 // command before calling it done, so stale telemetry cannot fake a setpoint hit.
 void beginTravel(State next, double valveAngleDeg, unsigned long now) {
     targetAngleDeg = valveAngleDeg;
-    targetPositionRotations = angleToMotorRotations(valveAngleDeg);
+    targetPositionRotations = (valveAngleDeg / 360.0) * Config::GEAR_RATIO;
     positionReceivedDuringTravel = false;
     enterState(next, now);
     commandTarget(now);
@@ -151,7 +127,7 @@ bool isPositionFrame(const struct can_frame& frame) {
 
     const uint32_t id = frame.can_id & CAN_EFF_MASK;
     const uint8_t receivedMotorID = id & Spark::SPARK_DEVICE_ID_MASK;
-    if (receivedMotorID != motorID) return false;
+    if (receivedMotorID != Config::LOX_MOTOR_ID) return false;
 
     const uint32_t baseID = id & ~Spark::SPARK_DEVICE_ID_MASK;
     return baseID == Spark::SPARK_ARB_STATUS_2;
@@ -182,12 +158,8 @@ void finishTest(unsigned long now) {
 void advanceSetpointOrFinish(unsigned long now) {
     if (!descendingSweep) {
         // keep stepping upward until we reach the fully open setpoint.
-        if (targetAngleDeg < endAngleDeg - angleEpsilonDeg) {
+        if (targetAngleDeg <= endAngleDeg - angleIncrementDeg) {
             double nextAngle = targetAngleDeg + angleIncrementDeg;
-
-            if (nextAngle > endAngleDeg) {
-                nextAngle = endAngleDeg;
-            }
 
             beginTravel(State::Moving, nextAngle, now);
             return;
@@ -201,7 +173,8 @@ void advanceSetpointOrFinish(unsigned long now) {
          */
         descendingSweep = true;
 
-        double nextAngle = endAngleDeg - angleIncrementDeg;
+        // The top setpoint already had its dwell; move straight to the next lower angle.
+        double nextAngle = targetAngleDeg - angleIncrementDeg;
 
         if (nextAngle < startAngleDeg) {
             nextAngle = startAngleDeg;

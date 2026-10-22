@@ -30,4 +30,15 @@ namespace Config {
     constexpr double CLOSED_ROTATIONS = (CLOSED_THETA / 360.0) * GEAR_RATIO;
 
     constexpr double GOAL_POSITION_TOLERANCE = 0.20; // motor rotations away from goal position
+
+    //pt constants
+    // PressureTransducer pt1 = PressureTransducer(A2, 1000, 0.47, 4.5);
+    constexpr int PT1_INPUT_PIN = A2;
+    constexpr int PT2_INPUT_PIN = A3;
+    constexpr float PT1_MAX_PSI = 1000;
+    constexpr float PT2_MAX_PSI = 1000;
+    constexpr double PT_MIN_VOLTAGE = 0.47;
+    constexpr double PT_MAX_VOLTAGE = 4.5;
+
+
 }
