@@ -13,7 +13,7 @@
 
 class PressureTransducer {
    public:
-    PressureTransducer(int analogPin, float maxPressurePSI, double minVoltage, double maxVoltage) : analogPin_(analogPin), maxPressurePSI_(maxPressurePSI), minVoltage_(minVoltage), maxVoltage_(maxVoltage) {}
+    PressureTransducer(int analogPin, float maxPressurePSI, double minVoltage, double maxVoltage) : analogPin_(analogPin), minVoltage_(minVoltage), maxVoltage_(maxVoltage), maxPressurePSI_(maxPressurePSI) {}
 
     float getPressure(bool printVoltage = true) const {
         // 0 to 1023

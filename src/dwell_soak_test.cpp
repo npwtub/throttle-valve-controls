@@ -1,5 +1,5 @@
 /**
- * Valve soak test with CSV logging.
+ * Valve soak test with binary SD logging.
  * - Starts when a space arrives over Serial.
  * - Holds open for two seconds, then closes for a one-hour soak.
  * - Repeats two seconds open and one second closed after the soak.
@@ -103,8 +103,9 @@ void freeze(unsigned long now) {
     targetPosition = Config::CLOSED_ROTATIONS;
     enterState(State::Frozen, now);
     commandPosition(now);
-    logRow(&motorState, &pt1, &pt2, now, stateName());
-    // Final fault row, followed by permanent serial silence.
+    logRow(&motorState, &pt1, &pt2, now, stateName(), targetPosition);
+    closeSdLog();
+    // Final fault record is flushed and the file is closed.
 }
 }  // namespace
 
@@ -113,7 +114,7 @@ void setup() {
     mcp2515.reset();
     mcp2515.setBitrate(CAN_1000KBPS, MCP_8MHZ);
     mcp2515.setNormalOneShotMode();
-    printLogHeader(&motorState, &pt1, &pt2);
+    beginSdLog();
     lastLog = millis();
 }
 
@@ -167,7 +168,7 @@ void loop() {
                 }
                 enterState(next, now);
                 // Capture the arrival, then continue at this state's log interval.
-                logRow(&motorState, &pt1, &pt2, now, stateName());
+                logRow(&motorState, &pt1, &pt2, now, stateName(), targetPosition);
             } else if (now - stateStart >= travelTimeoutMs) {
                 freeze(now);
             }
@@ -209,6 +210,8 @@ void loop() {
         lastLog += Config::LOG_FREQUENCY_25_HZ;
         // Skip missed samples instead of sending a burst after a delay.
         if (now - lastLog >= Config::LOG_FREQUENCY_25_HZ) lastLog = now;
-        logRow(&motorState, &pt1, &pt2, now, stateName());
+        logRow(&motorState, &pt1, &pt2, now, stateName(),
+               state == State::Waiting ? NAN : targetPosition);
     }
+    serviceSdLog();
 }

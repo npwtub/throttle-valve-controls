@@ -1,5 +1,5 @@
 /**
- * Repeated valve dwell test with CSV logging.
+ * Repeated valve dwell test with binary SD logging.
  * - Starts when a space arrives over Serial.
  * - Opens every three minutes and holds open for 350 ms.
  * - Starts the dwell after fresh feedback confirms the open position.
@@ -44,12 +44,14 @@ unsigned long stateStart = 0;
 unsigned long lastHeartbeat = 0;
 unsigned long lastCommand = 0;
 unsigned long lastLog = 0;
-unsigned long start_ms = 0;
 bool positionReceivedDuringTravel = false;
+// No position command has been submitted while initially waiting.
+float commandedPosition = NAN;
 
 // sets position to motor
 void commandPosition(double target, unsigned long now) {
     motor.set_position(target, 0, 0, 0);
+    commandedPosition = target;
     lastCommand = now;
 }
 
@@ -83,7 +85,8 @@ const __FlashStringHelper* stateName() {
 void freeze(unsigned long now) {
     state = State::Frozen;
     commandPosition(Config::CLOSED_ROTATIONS, now);
-    logRow(&motorState, &pt1, &pt2, now, stateName());// One final CSV row; no further serial output until reset.
+    logRow(&motorState, &pt1, &pt2, now, stateName(), commandedPosition);
+    closeSdLog();
     Serial.print("froze after: ");
     Serial.print(now / 1000);
     Serial.println(" seconds");
@@ -95,7 +98,7 @@ void setup() {
     mcp2515.reset();
     mcp2515.setBitrate(CAN_1000KBPS, MCP_8MHZ);
     mcp2515.setNormalOneShotMode();
-    printLogHeader(&motorState, &pt1, &pt2);
+    beginSdLog();
     lastLog = millis();
 }
 
@@ -184,6 +187,7 @@ void loop() {
     if (state != State::Frozen && now - lastLog >= Config::LOG_FREQUENCY_25_HZ) {
         lastLog += Config::LOG_FREQUENCY_25_HZ;
         if (now - lastLog >= Config::LOG_FREQUENCY_25_HZ) lastLog = now;  // No bursts after delays.
-        logRow(&motorState, &pt1, &pt2, now, stateName());
+        logRow(&motorState, &pt1, &pt2, now, stateName(), commandedPosition);
     } 
+    serviceSdLog();
 }

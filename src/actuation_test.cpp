@@ -5,7 +5,7 @@
  * - Holds open for five seconds per cycle.
  * - Commands closed after completion or a travel timeout.
  * - Calculates and submits control + heartbeat frames every 5 ms.
- * - Reports cumulative send timing and failures once per second.
+ * - Queues telemetry for SD; no periodic Serial diagnostics.
  */
 #include <Arduino.h>
 #include <CanControl.h>
@@ -13,7 +13,9 @@
 #include <mcp2515.h>
 
 #include "config.h"
+#include "control_timing_tail.h"
 #include "motor_state.h"
+#include "log.h"
 
 // MCP2515 chip select pin
 MCP2515 mcp2515(Config::CAN_CS_PIN, 4000000UL);
@@ -28,36 +30,7 @@ const int timeOpen_ms = 5000;
 const int actuationInterval_ms = 5000;
 const int travelTimeout_ms = 1000;
 const int numActuations = 5;
-constexpr unsigned long controlPeriodUs = 5000;
-constexpr unsigned long timingReportPeriodMs = 1000;
-
-// Buffer reports in RAM, then copy only as many bytes as the UART can accept.
-// Long timing reports must not block the next control cycle at 57600 baud.
-class BufferedSerialLog : public Print {
-public:
-    size_t write(uint8_t value) override {
-        const uint16_t next = (head + 1) % sizeof(buffer);
-        if (next == tail) return 0;
-        buffer[head] = value;
-        head = next;
-        return 1;
-    }
-
-    void drain() {
-        int available = Serial.availableForWrite();
-        while (available-- > 0 && tail != head) {
-            Serial.write(buffer[tail]);
-            tail = (tail + 1) % sizeof(buffer);
-        }
-    }
-
-private:
-    uint8_t buffer[512] = {};
-    uint16_t head = 0;
-    uint16_t tail = 0;
-};
-
-BufferedSerialLog serialLog;
+constexpr unsigned long timingWindowPeriodMs = 1000;
 
 struct SendTiming {
     uint64_t totalUs = 0;
@@ -67,29 +40,30 @@ struct SendTiming {
     unsigned long controlErrors = 0;
     unsigned long heartbeatErrors = 0;
     unsigned long missedSends = 0;
-    unsigned long cycleOverruns = 0;
+    unsigned long previousCommandUs = 0;
+    unsigned long worstCommandSpacingUs = 0;
 };
 
 SendTiming sendTiming;
+ControlTimingTail timingTail;
 
-void reportSendTiming() {
-    serialLog.print(F("CAN timing: cycles="));
-    serialLog.print(sendTiming.cycles);
-    serialLog.print(F(" avg_us="));
-    serialLog.print(static_cast<unsigned long>(sendTiming.totalUs / sendTiming.cycles));
-    serialLog.print(F(" worst_us="));
-    serialLog.print(sendTiming.worstUs);
-    serialLog.print(F(" late_5ms="));
-    serialLog.print(sendTiming.lateSends);
-    serialLog.print(F(" control_errors="));
-    serialLog.print(sendTiming.controlErrors);
-    serialLog.print(F(" heartbeat_errors="));
-    serialLog.print(sendTiming.heartbeatErrors);
-    serialLog.print(F(" missed_sends="));
-    serialLog.print(sendTiming.missedSends);
-    serialLog.print(F(" cycle_overruns="));
-    serialLog.println(sendTiming.cycleOverruns);
-}
+// Start-to-start timing for the commanded test only, excluding WAITING and
+// final SD closure/reporting. Frequency uses intervals, not endpoint count.
+struct RunTiming {
+    bool started = false;
+    bool reported = false;
+    uint32_t cycles = 0;
+    uint32_t firstUs = 0;
+    uint32_t previousUs = 0;
+    uint32_t worstSpacingUs = 0;
+    uint32_t missedBaseline = 0;
+    uint32_t droppedBaseline = 0;
+    uint32_t controlOver5ms = 0;
+    uint32_t beforeSdOver5ms = 0;
+    uint32_t withSdOver5ms = 0;
+    uint32_t withoutSdOver5ms = 0;
+};
+RunTiming runTiming;
 
 enum TestState {
     WAITING,
@@ -103,10 +77,25 @@ enum TestState {
 
 TestState testState = WAITING;
 
+const __FlashStringHelper* stateName() {
+    switch (testState) {
+        case WAITING: return F("waiting");
+        case CLOSED:  return F("closed");
+        case OPENING: return F("opening");
+        case OPEN:    return F("open");
+        case CLOSING: return F("closing");
+        case DONE:    return F("done");
+        case TIMEOUT: return F("timeout");
+    }
+    return F("unknown");
+}
+
 void setup() {
     Serial.begin(Config::BAUD_RATE_LONG);
 
     // Initialize MCP2515
+    pinMode(Config::SD_CS_PIN, OUTPUT);
+    digitalWrite(Config::SD_CS_PIN, HIGH);
     mcp2515.reset();
 
     // Spark MAX CAN bus runs at 1 Mbps.
@@ -116,13 +105,17 @@ void setup() {
     mcp2515.setNormalOneShotMode();
 
     delay(delayTime_ms);
+    beginSdLog();
+    waitForUnixTime();
+    beginControlSchedule();
 }
 
 void loop() {
+    beginControlCycle();
     const unsigned long cycleStartUs = micros();
     static int actuationCount = 0;
     static unsigned long lastActuation = 0;
-    static unsigned long lastTimingReport = 0;
+    static unsigned long lastTimingWindow = millis();
 
     // Bound receive work so continuous traffic cannot starve outgoing frames.
     struct can_frame frame;
@@ -140,6 +133,12 @@ void loop() {
             // Poll without blocking so the 5 ms control cycle continues.
             // A single space starts the test; no newline is required.
             if (Serial.available() > 0 && Serial.read() == ' ') {
+                runTiming.started = true;
+                runTiming.firstUs = cycleStartUs;
+                runTiming.previousUs = cycleStartUs;
+                runTiming.missedBaseline = controlSchedule.missedSlots;
+                runTiming.droppedBaseline = sdLog.dropped();
+                sendTiming = SendTiming{};
                 lastActuation = now;  // Begin the existing initial closed interval.
                 testState = CLOSED;
             }
@@ -191,6 +190,13 @@ void loop() {
     // Waiting, completed, and timed-out tests all command the closed position.
     const bool openingOrOpen = testState == OPENING || testState == OPEN;
     const float target = openingOrOpen ? Config::OPEN_ROTATIONS : Config::CLOSED_ROTATIONS;
+    const unsigned long commandStartUs = micros();
+    if (sendTiming.cycles != 0) {
+        const unsigned long spacingUs = commandStartUs - sendTiming.previousCommandUs;
+        if (spacingUs > sendTiming.worstCommandSpacingUs)
+            sendTiming.worstCommandSpacingUs = spacingUs;
+    }
+    sendTiming.previousCommandUs = commandStartUs;
     const MCP2515::ERROR controlResult = motor.set_position(target, 0, 0, 0);
     const MCP2515::ERROR heartbeatResult = CanControl::send_heartbeat(
         mcp2515, CanControl::default_heartbeat());
@@ -198,10 +204,11 @@ void loop() {
     // Time includes CAN reception, calculations, and BOTH send calls, even on
     // failures/overruns. The driver queues frames; this is not on-wire latency.
     const unsigned long sendTimeUs = micros() - cycleStartUs;
+    timingTail.record(sendTimeUs);
     ++sendTiming.cycles;
     sendTiming.totalUs += sendTimeUs;
     if (sendTimeUs > sendTiming.worstUs) sendTiming.worstUs = sendTimeUs;
-    const bool late = sendTimeUs > controlPeriodUs;
+    const bool late = sendTimeUs > Config::CONTROL_PERIOD_US;
     const bool controlFailed = controlResult != MCP2515::ERROR_OK;
     const bool heartbeatFailed = heartbeatResult != MCP2515::ERROR_OK;
     if (late) ++sendTiming.lateSends;
@@ -209,25 +216,60 @@ void loop() {
     if (heartbeatFailed) ++sendTiming.heartbeatErrors;
     // A failed frame misses this cycle even when the driver returns promptly.
     if (late || controlFailed || heartbeatFailed) ++sendTiming.missedSends;
-
-    // Queue timing output only AFTER both frames have been submitted.
-    if (now - lastTimingReport >= timingReportPeriodMs) {
-        lastTimingReport = now;
-        reportSendTiming();
+    const bool testFinished = testState == DONE || testState == TIMEOUT;
+    const bool reportRun = runTiming.started && !runTiming.reported && testFinished;
+    if (runTiming.started && !runTiming.reported) {
+        const uint32_t spacingUs = cycleStartUs - runTiming.previousUs;
+        if (spacingUs > runTiming.worstSpacingUs)
+            runTiming.worstSpacingUs = spacingUs;
+        runTiming.previousUs = cycleStartUs;
+        ++runTiming.cycles;
     }
-    serialLog.drain();
+    // Snapshot before finalRow causes blocking shutdown work.
+    const uint32_t runElapsedUs = cycleStartUs - runTiming.firstUs;
+    const uint32_t runMissedSlots = controlSchedule.missedSlots - runTiming.missedBaseline;
+    logRow(&motorState, nullptr, nullptr, millis(), stateName(), target, testFinished);
+    // Keep percentile windows bounded without formatting or sending reports.
+    if (now - lastTimingWindow >= timingWindowPeriodMs) {
+        lastTimingWindow = now;
+        timingTail.startNextInterval(timingTail.percentileBucket(95),
+                                     timingTail.percentileBucket(99));
+    }
 
-    // Serial formatting/draining and bookkeeping also consume this cycle's
-    // budget. A slow cycle starts the next one immediately, with no extra delay.
-    const unsigned long elapsedUs = micros() - cycleStartUs;
-    if (elapsedUs > controlPeriodUs) {
-        ++sendTiming.cycleOverruns;
-    } else if (elapsedUs < controlPeriodUs) {
-        const unsigned long remainingUs = controlPeriodUs - elapsedUs;
-        delay(remainingUs / 1000UL);
-        // Finish the fractional millisecond against the original start time,
-        // keeping interrupt handling and delay overhead inside the 5 ms budget.
-        while (micros() - cycleStartUs < controlPeriodUs) {
-        }
+    // Use spare time for SD blocks, then account for any missed schedule slots.
+    const uint32_t beforeSdUs = micros() - cycleStartUs;
+    const uint32_t blocksBefore = sdLog.blockWriteCount();
+    finishControlCycle();
+    const uint32_t fullCycleUs = micros() - cycleStartUs;
+    // Mutually exclusive categories of active non-final cycles >5 ms.
+    // These indicate where the threshold was crossed, not exclusive causation.
+    if (runTiming.started && !runTiming.reported && !testFinished &&
+        fullCycleUs > Config::CONTROL_PERIOD_US) {
+        if (sendTimeUs > Config::CONTROL_PERIOD_US) ++runTiming.controlOver5ms;
+        else if (beforeSdUs > Config::CONTROL_PERIOD_US) ++runTiming.beforeSdOver5ms;
+        else if (sdLog.blockWriteCount() > blocksBefore) ++runTiming.withSdOver5ms;
+        else ++runTiming.withoutSdOver5ms;
+    }
+    if (reportRun) {
+        runTiming.reported = true;
+        const double achievedHz = runElapsedUs && runTiming.cycles > 1
+            ? double(runTiming.cycles - 1) * 1000000.0 / runElapsedUs : 0.0;
+        Serial.print(F("RUN: state=")); Serial.print(stateName());
+        Serial.print(F(" cycles=")); Serial.print(runTiming.cycles);
+        Serial.print(F(" elapsed_ms=")); Serial.print(runElapsedUs / 1000UL);
+        Serial.print(F(" control_hz=")); Serial.print(achievedHz, 2);
+        Serial.print(F(" spacing_worst_us=")); Serial.print(runTiming.worstSpacingUs);
+        Serial.print(F(" missed_slots=")); Serial.print(runMissedSlots);
+        Serial.print(F(" dropped_records="));
+        Serial.print(sdLog.dropped() - runTiming.droppedBaseline);
+        Serial.print(F(" control_errors=")); Serial.print(sendTiming.controlErrors);
+        Serial.print(F(" heartbeat_errors=")); Serial.print(sendTiming.heartbeatErrors);
+        Serial.print(F(" write_allowance_us="));
+        Serial.println(Config::SD_WRITE_ESTIMATE_US + Config::SD_WRITE_MARGIN_US);
+        reportLogStatus(Serial);
+        Serial.print(F("OVER_5MS: control=")); Serial.print(runTiming.controlOver5ms);
+        Serial.print(F(" pre_sd_logging=")); Serial.print(runTiming.beforeSdOver5ms);
+        Serial.print(F(" service_with_write=")); Serial.print(runTiming.withSdOver5ms);
+        Serial.print(F(" service_without_write=")); Serial.println(runTiming.withoutSdOver5ms);
     }
 }

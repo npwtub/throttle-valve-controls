@@ -16,6 +16,21 @@ namespace Config {
 
     // PWM output port on arduino that CAN shield connects too
     constexpr uint8_t CAN_CS_PIN = 10;
+    // Adafruit #254 SD breakout chip select; wire CS to Mega digital pin 4.
+    constexpr uint8_t SD_CS_PIN = 9;
+
+    // The control period is 175 hz.
+    constexpr uint32_t CONTROL_PERIOD_US = 5714;
+
+    // Temporary estimate for one SD block write.
+    // Replace with measured timing later.
+    constexpr uint32_t SD_WRITE_ESTIMATE_US = 2500;
+
+    // Leave extra time before the next control cycle.
+    constexpr uint32_t SD_WRITE_MARGIN_US = 500;
+
+    // About 175 minutes at 200 records/s, including time waiting to start.
+    constexpr uint32_t SD_PREALLOCATE_BYTES = 128UL * 1024UL * 1024UL;
 
     constexpr uint8_t LOX_MOTOR_ID = 1;
     constexpr uint8_t FUEL_MOTOR_ID = 2;
