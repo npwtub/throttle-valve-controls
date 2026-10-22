@@ -10,7 +10,6 @@
 
 #include <Arduino.h>
 
-
 class PressureTransducer {
    public:
     PressureTransducer(int analogPin, float maxPressurePSI, double minVoltage, double maxVoltage) : analogPin_(analogPin), maxPressurePSI_(maxPressurePSI), minVoltage_(minVoltage), maxVoltage_(maxVoltage) {}
@@ -31,7 +30,7 @@ class PressureTransducer {
 
    private:
     int analogPin_;
+    float maxPressurePSI_;
     double minVoltage_;
     double maxVoltage_;
-    float maxPressurePSI_;
 };
