@@ -10,6 +10,7 @@
 
 #include <Arduino.h>
 
+//TODO: Split config into motor config and logging config
 namespace Config {
     constexpr unsigned long BAUD_RATE_SHORT = 115200; // shorter cable
     constexpr unsigned long BAUD_RATE_LONG = 57600; // 50 ft cable

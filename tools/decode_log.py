@@ -12,8 +12,7 @@ STATES = (
     "cycle_open", "cycle_closing", "cycle_closed", "done", "timeout",
 )
 COLUMNS = (
-    "timestamp_unix_ms", "format_version", "state", "time_valid",
-    "pt1_present", "pt2_present", "motor_present",
+    "timestamp_unix_ms", "state", "time_valid", "motor_present",
     "pt1_psi", "pt2_psi", "position_deg", "motor_temp_c", "output_percent",
     "rpm", "voltage_v", "current_a", "commanded_position_deg",
     "has_status_0", "has_status_2", "has_telemetry", "is_fresh",
@@ -74,7 +73,7 @@ def convert(source, destination):
             raise ValueError("Log contains no records")
         stream.seek(0)
         with destination.open("x", encoding="utf-8", newline="") as output:
-            writer = csv.DictWriter(output, fieldnames=COLUMNS)
+            writer = csv.DictWriter(output, fieldnames=COLUMNS, extrasaction = "ignore")
             writer.writeheader()
             while data := stream.read(RECORD.size):
                 writer.writerow(decode_record(data))

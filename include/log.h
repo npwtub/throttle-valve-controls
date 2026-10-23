@@ -93,22 +93,39 @@ static inline void makeLogRecord(
 // One logger per firmware translation unit (each environment builds one source).
 static SdLog sdLog;
 
+/**
+ * Contains times related to control scheduling including current cycle start time,
+ * next cycle start time, number of overruns, etc
+ */
 struct ControlSchedule {
+    // Scheduled start time of the next cycle.
     uint32_t nextStartUs = 0;
+    // cycles whose work and SD service run past the next scheduled start
     uint32_t overruns = 0;
+    // total scheduled cycle starts skipped to catch up after overruns
     uint32_t missedSlots = 0;
+    // actual start time of the most recent cycle
     uint32_t previousStartUs = 0;
+    // largest gap between consecutive actual cycle starts
     uint32_t worstSpacingUs = 0;
+    // whether a previous cycle start exists for measuring the next gap
     bool hasPreviousStart = false;
 };
 
 static ControlSchedule controlSchedule;
 
+/**
+ * Initializes ControlSchedule struct
+ */
 static inline void beginControlSchedule() {
     controlSchedule = ControlSchedule{};
     controlSchedule.nextStartUs = micros();
 }
 
+/**
+ * Waits until scheduled control cycle start time,
+ * then updates controlSchedule struct
+ */
 static inline void beginControlCycle() {
     while (static_cast<int32_t>(
         micros() - controlSchedule.nextStartUs) < 0) {
@@ -125,6 +142,10 @@ static inline void beginControlCycle() {
     controlSchedule.hasPreviousStart = true;
 }
 
+/**
+ * writes to SD card until cycle runs out of time and
+ * tracks if cycle ran late
+ */
 static inline void finishControlCycle() {
     sdLog.writeUntil(controlSchedule.nextStartUs);
 
@@ -140,6 +161,8 @@ static inline void finishControlCycle() {
              Config::CONTROL_PERIOD_US - 1) /
             Config::CONTROL_PERIOD_US;
 
+        // skips a step if it's time slot has been breached by the previous cycle
+        // this keeps the schedule from shifting
         controlSchedule.missedSlots += skipped;
         controlSchedule.nextStartUs +=
             skipped * Config::CONTROL_PERIOD_US;
@@ -192,7 +215,7 @@ static inline void waitForUnixTime() {
     Serial.println(F("READY_FOR_TIME"));
 
     while (!sdLog.hasUnixTime()) {
-        if (millis() - lastPrompt >= 1000UL) {
+        if (millis() - lastPrompt >= 10000UL) {
             Serial.println(F("READY_FOR_TIME"));
             lastPrompt = millis();
         }
