@@ -4,7 +4,7 @@
  * - Converts sensor voltage to PSI.
  * - Uses configured voltage limits and maximum pressure.
  * - Assumes a 5 V, 10-bit ADC. Does not clamp readings.
- * - Pass false to getPressure() to hide voltage prints.
+ * - Pass false to get_pressure() to hide voltage prints.
  */
 #pragma once
 
@@ -13,9 +13,9 @@
 
 class PressureTransducer {
    public:
-    PressureTransducer(int analogPin, float maxPressurePSI, double minVoltage, double maxVoltage) : analogPin_(analogPin), minVoltage_(minVoltage), maxVoltage_(maxVoltage), maxPressurePSI_(maxPressurePSI) {}
+    PressureTransducer(int analogPin, float maxPressurePsi, double minVoltage, double maxVoltage) : analogPin_(analogPin), minVoltage_(minVoltage), maxVoltage_(maxVoltage), maxPressurePsi_(maxPressurePsi) {}
 
-    float getPressure(bool printVoltage = true) const {
+    float get_pressure(bool printVoltage = true) const {
         // 0 to 1023
         int rawValue = analogRead(analogPin_);
 
@@ -25,13 +25,13 @@ class PressureTransducer {
             Serial.print(voltage);
         }
 
-        double pressurePSI = (voltage - minVoltage_) * (maxPressurePSI_ / (maxVoltage_ - minVoltage_));
-        return pressurePSI;
+        double pressurePsi = (voltage - minVoltage_) * (maxPressurePsi_ / (maxVoltage_ - minVoltage_));
+        return pressurePsi;
     }
 
    private:
     int analogPin_;
     double minVoltage_;
     double maxVoltage_;
-    float maxPressurePSI_;
+    float maxPressurePsi_;
 };

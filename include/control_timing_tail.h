@@ -27,7 +27,7 @@ struct ControlTimingTail {
         }
     }
 
-    uint8_t percentileBucket(uint8_t percent) const {
+    uint8_t percentile_bucket(uint8_t percent) const {
         // ceil(samples * percent / 100), without overflowing the product.
         const uint32_t rank = (samples / 100) * percent +
                               ((samples % 100) * percent + 99) / 100;
@@ -39,7 +39,7 @@ struct ControlTimingTail {
         return bucketCount - 1;
     }
 
-    void startNextInterval(uint8_t p95, uint8_t p99) {
+    void start_next_interval(uint8_t p95, uint8_t p99) {
         previousP95 = p95;
         previousP99 = p99;
         // An overflow percentile has no finite threshold to compare against.

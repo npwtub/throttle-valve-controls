@@ -2,9 +2,9 @@
 
 #include <stdint.h>
 
-template <typename Record, uint16_t Capacity>
+template <typename Record, uint16_t capacity>
 class RingBuffer {
-    static_assert(Capacity > 0, "Ring buffer capacity must be positive");
+    static_assert(capacity > 0, "Ring buffer capacity must be positive");
 
 public:
 uint16_t size() const {
@@ -16,14 +16,14 @@ bool empty() const {
 }
 
 bool full() const {
-    return count == Capacity;
+    return count == capacity;
 }
 
 uint32_t dropped() const {
     return droppedRecords;
 }
 bool push(const Record& record) {
-    if (count == Capacity) {
+    if (count == capacity) {
         ++droppedRecords;
         return false;
     }
@@ -31,7 +31,7 @@ bool push(const Record& record) {
     records[head] = record;
 
     ++head;
-    if (head == Capacity) {
+    if (head == capacity) {
         head = 0;
     }
 
@@ -46,7 +46,7 @@ bool pop(Record& record) {
     record = records[tail];
 
     ++tail;
-    if (tail == Capacity) {
+    if (tail == capacity) {
         tail = 0;
     }
 
@@ -54,7 +54,7 @@ bool pop(Record& record) {
     return true;
 }
 private:
-    Record records[Capacity] = {};
+    Record records[capacity] = {};
 
     uint16_t head = 0;
     uint16_t tail = 0;

@@ -18,17 +18,17 @@
 #include "log.h"
 
 // MCP2515 chip select pin
-MCP2515 mcp2515(Config::CAN_CS_PIN, 4000000UL);
+MCP2515 mcp2515(Config::kCanCsPin, 4000000UL);
 
 // Spark MAX CAN ID = 1
-CanControl::SparkMax motor(mcp2515, Config::LOX_MOTOR_ID);
+CanControl::SparkMax motor(mcp2515, Config::kLoxMotorId);
 
-MotorState motorState(Config::LOX_MOTOR_ID);
+MotorState motorState(Config::kLoxMotorId);
 
-const double delayTime_ms = 1000;
-const int timeOpen_ms = 5000;
-const int actuationInterval_ms = 5000;
-const int travelTimeout_ms = 1000;
+const double delayTimeMs = 1000;
+const int timeOpenMs = 5000;
+const int actuationIntervalMs = 5000;
+const int travelTimeoutMs = 1000;
 const int numActuations = 5;
 constexpr unsigned long timingWindowPeriodMs = 1000;
 
@@ -58,10 +58,10 @@ struct RunTiming {
     uint32_t worstSpacingUs = 0;
     uint32_t missedBaseline = 0;
     uint32_t droppedBaseline = 0;
-    uint32_t controlOver5ms = 0;
-    uint32_t beforeSdOver5ms = 0;
-    uint32_t withSdOver5ms = 0;
-    uint32_t withoutSdOver5ms = 0;
+    uint32_t controlOver5Ms = 0;
+    uint32_t beforeSdOver5Ms = 0;
+    uint32_t withSdOver5Ms = 0;
+    uint32_t withoutSdOver5Ms = 0;
 };
 RunTiming runTiming;
 
@@ -77,7 +77,7 @@ enum TestState {
 
 TestState testState = WAITING;
 
-const __FlashStringHelper* stateName() {
+const __FlashStringHelper* state_name() {
     switch (testState) {
         case WAITING: return F("waiting");
         case CLOSED:  return F("closed");
@@ -91,11 +91,11 @@ const __FlashStringHelper* stateName() {
 }
 
 void setup() {
-    Serial.begin(Config::BAUD_RATE_LONG);
+    Serial.begin(Config::kBaudRateLong);
 
     // Initialize MCP2515
-    pinMode(Config::SD_CS_PIN, OUTPUT);
-    digitalWrite(Config::SD_CS_PIN, HIGH);
+    pinMode(Config::kSdCsPin, OUTPUT);
+    digitalWrite(Config::kSdCsPin, HIGH);
     mcp2515.reset();
 
     // Spark MAX CAN bus runs at 1 Mbps.
@@ -104,14 +104,14 @@ void setup() {
 
     mcp2515.setNormalOneShotMode();
 
-    delay(delayTime_ms);
-    beginSdLog();
-    waitForUnixTime();
-    beginControlSchedule();
+    delay(delayTimeMs);
+    begin_sd_log();
+    wait_for_unix_time();
+    begin_control_schedule();
 }
 
 void loop() {
-    beginControlCycle();
+    begin_control_cycle();
     const unsigned long cycleStartUs = micros();
     static int actuationCount = 0;
     static unsigned long lastActuation = 0;
@@ -123,7 +123,7 @@ void loop() {
                             mcp2515.readMessage(&frame) == MCP2515::ERROR_OK;
          ++count) {
         motor.handle_received_frame(frame);
-        motorState.processFrame(frame);
+        motorState.process_frame(frame);
     }
 
     const unsigned long now = millis();
@@ -145,7 +145,7 @@ void loop() {
             break;
         case CLOSED:
             // if actuation interval has passed, open the valve
-            if ((now - lastActuation) > actuationInterval_ms) {
+            if ((now - lastActuation) > actuationIntervalMs) {
                 actuationCount++;
                 testState = OPENING;
                 lastActuation = now;
@@ -153,31 +153,31 @@ void loop() {
             break;
         case OPENING:
             // At the goal position, start the open hold interval.
-            if (Config::OPEN_ROTATIONS - motorState.getPosition() < 0.15) {
+            if (Config::kOpenRotations - motorState.get_position() < 0.15) {
                 testState = OPEN;
 
                 lastActuation = now;
-            } else if (now - lastActuation > travelTimeout_ms) {
+            } else if (now - lastActuation > travelTimeoutMs) {
                 testState = TIMEOUT;
             }
             break;
         case OPEN:
             // if actuation time has passed, close the valve
-            if ((now - lastActuation) > timeOpen_ms) {
+            if ((now - lastActuation) > timeOpenMs) {
                 testState = CLOSING;
                 lastActuation = now;
             }
             break;
         case CLOSING:
             // At the closed position, complete the test or start the next interval.
-            if ((motorState.getPosition() < 0.15)) {
+            if ((motorState.get_position() < Config::kGoalPositionTolerance)) {
                 lastActuation = now;
                 if (actuationCount >= numActuations) {
                     testState = DONE;  // test is done
                 } else {
                     testState = CLOSED;  // test is not yet done and valve will open again
                 }
-            } else if (now - lastActuation > travelTimeout_ms) {
+            } else if (now - lastActuation > travelTimeoutMs) {
                 testState = TIMEOUT;
             }
             break;
@@ -189,7 +189,7 @@ void loop() {
     // Submit both frames immediately after calculations, exactly once per cycle.
     // Waiting, completed, and timed-out tests all command the closed position.
     const bool openingOrOpen = testState == OPENING || testState == OPEN;
-    const float target = openingOrOpen ? Config::OPEN_ROTATIONS : Config::CLOSED_ROTATIONS;
+    const float target = openingOrOpen ? Config::kOpenRotations : Config::kClosedRotations;
     const unsigned long commandStartUs = micros();
     if (sendTiming.cycles != 0) {
         const unsigned long spacingUs = commandStartUs - sendTiming.previousCommandUs;
@@ -208,7 +208,7 @@ void loop() {
     ++sendTiming.cycles;
     sendTiming.totalUs += sendTimeUs;
     if (sendTimeUs > sendTiming.worstUs) sendTiming.worstUs = sendTimeUs;
-    const bool late = sendTimeUs > Config::CONTROL_PERIOD_US;
+    const bool late = sendTimeUs > Config::kControlPeriodUs;
     const bool controlFailed = controlResult != MCP2515::ERROR_OK;
     const bool heartbeatFailed = heartbeatResult != MCP2515::ERROR_OK;
     if (late) ++sendTiming.lateSends;
@@ -228,33 +228,33 @@ void loop() {
     // Snapshot before finalRow causes blocking shutdown work.
     const uint32_t runElapsedUs = cycleStartUs - runTiming.firstUs;
     const uint32_t runMissedSlots = controlSchedule.missedSlots - runTiming.missedBaseline;
-    logRow(&motorState, nullptr, nullptr, millis(), stateName(), target, testFinished);
+    log_row(&motorState, nullptr, nullptr, millis(), state_name(), (target / 32.0017) * 360, testFinished);
     // Keep percentile windows bounded without formatting or sending reports.
     if (now - lastTimingWindow >= timingWindowPeriodMs) {
         lastTimingWindow = now;
-        timingTail.startNextInterval(timingTail.percentileBucket(95),
-                                     timingTail.percentileBucket(99));
+        timingTail.start_next_interval(timingTail.percentile_bucket(95),
+                                     timingTail.percentile_bucket(99));
     }
 
     // Use spare time for SD blocks, then account for any missed schedule slots.
     const uint32_t beforeSdUs = micros() - cycleStartUs;
-    const uint32_t blocksBefore = sdLog.blockWriteCount();
-    finishControlCycle();
+    const uint32_t blocksBefore = sdLog.block_write_count();
+    finish_control_cycle();
     const uint32_t fullCycleUs = micros() - cycleStartUs;
     // Mutually exclusive categories of active non-final cycles >5 ms.
     // These indicate where the threshold was crossed, not exclusive causation.
     if (runTiming.started && !runTiming.reported && !testFinished &&
-        fullCycleUs > Config::CONTROL_PERIOD_US) {
-        if (sendTimeUs > Config::CONTROL_PERIOD_US) ++runTiming.controlOver5ms;
-        else if (beforeSdUs > Config::CONTROL_PERIOD_US) ++runTiming.beforeSdOver5ms;
-        else if (sdLog.blockWriteCount() > blocksBefore) ++runTiming.withSdOver5ms;
-        else ++runTiming.withoutSdOver5ms;
+        fullCycleUs > Config::kControlPeriodUs) {
+        if (sendTimeUs > Config::kControlPeriodUs) ++runTiming.controlOver5Ms;
+        else if (beforeSdUs > Config::kControlPeriodUs) ++runTiming.beforeSdOver5Ms;
+        else if (sdLog.block_write_count() > blocksBefore) ++runTiming.withSdOver5Ms;
+        else ++runTiming.withoutSdOver5Ms;
     }
     if (reportRun) {
         runTiming.reported = true;
         const double achievedHz = runElapsedUs && runTiming.cycles > 1
             ? double(runTiming.cycles - 1) * 1000000.0 / runElapsedUs : 0.0;
-        Serial.print(F("RUN: state=")); Serial.print(stateName());
+        Serial.print(F("RUN: state=")); Serial.print(state_name());
         Serial.print(F(" cycles=")); Serial.print(runTiming.cycles);
         Serial.print(F(" elapsed_ms=")); Serial.print(runElapsedUs / 1000UL);
         Serial.print(F(" control_hz=")); Serial.print(achievedHz, 2);
@@ -265,11 +265,11 @@ void loop() {
         Serial.print(F(" control_errors=")); Serial.print(sendTiming.controlErrors);
         Serial.print(F(" heartbeat_errors=")); Serial.print(sendTiming.heartbeatErrors);
         Serial.print(F(" write_allowance_us="));
-        Serial.println(Config::SD_WRITE_ESTIMATE_US + Config::SD_WRITE_MARGIN_US);
-        reportLogStatus(Serial);
-        Serial.print(F("OVER_5MS: control=")); Serial.print(runTiming.controlOver5ms);
-        Serial.print(F(" pre_sd_logging=")); Serial.print(runTiming.beforeSdOver5ms);
-        Serial.print(F(" service_with_write=")); Serial.print(runTiming.withSdOver5ms);
-        Serial.print(F(" service_without_write=")); Serial.println(runTiming.withoutSdOver5ms);
+        Serial.println(Config::kSdWriteEstimateUs + Config::kSdWriteMarginUs);
+        report_log_status(Serial);
+        Serial.print(F("OVER_5MS: control=")); Serial.print(runTiming.controlOver5Ms);
+        Serial.print(F(" pre_sd_logging=")); Serial.print(runTiming.beforeSdOver5Ms);
+        Serial.print(F(" service_with_write=")); Serial.print(runTiming.withSdOver5Ms);
+        Serial.print(F(" service_without_write=")); Serial.println(runTiming.withoutSdOver5Ms);
     }
 }

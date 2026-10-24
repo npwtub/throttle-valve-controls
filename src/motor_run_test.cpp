@@ -13,18 +13,18 @@
 #include "config.h"
 #include "motor_state.h"
 
-constexpr unsigned long PRINT_INTERVAL_MS = 100;
+constexpr unsigned long printIntervalMs = 100;
 
 // MCP2515 chip select pin
-MCP2515 mcp2515(Config::CAN_CS_PIN, 4000000UL);
+MCP2515 mcp2515(Config::kCanCsPin, 4000000UL);
 
 // Spark MAX CAN ID = 1
-CanControl::SparkMax motor(mcp2515, Config::LOX_MOTOR_ID);
+CanControl::SparkMax motor(mcp2515, Config::kLoxMotorId);
 
-MotorState motorState(Config::LOX_MOTOR_ID);
+MotorState motorState(Config::kLoxMotorId);
 
 void setup() {
-    Serial.begin(Config::BAUD_RATE_LONG);
+    Serial.begin(Config::kBaudRateLong);
     delay(500);
 
     Serial.println("Starting Spark MAX test...");
@@ -67,20 +67,20 @@ void loop() {
     while (mcp2515.readMessage(&frame) == MCP2515::ERROR_OK)
     {
     motor.handle_received_frame(frame);
-    motorState.processFrame(frame);
+    motorState.process_frame(frame);
     }
 
     if (now - lastPrint > 500) {
         lastPrint = now;
 
         Serial.print("Output: ");
-        Serial.print(motorState.getAppliedOutputPercent());
+        Serial.print(motorState.get_applied_output_percent());
 
         Serial.print("% | RPM: ");
-        Serial.print(motorState.getRPM());
+        Serial.print(motorState.get_rpm());
 
         Serial.print(" | Position: ");
-        Serial.println(motorState.getPosition());
+        Serial.println(motorState.get_position());
 
     }
     delay(5);

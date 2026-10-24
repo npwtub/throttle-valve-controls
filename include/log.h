@@ -17,27 +17,27 @@
 #include <stdint.h>
 #include <string.h>
 
-static inline void putU32(uint8_t* dst, uint32_t value) {
+static inline void put_u32(uint8_t* dst, uint32_t value) {
     for (uint8_t i = 0; i < 4; ++i) {
         dst[i] = uint8_t(value >> (8 * i));
     }
 }
 
-static inline void putU64(uint8_t* dst, uint64_t value) {
+static inline void put_u64(uint8_t* dst, uint64_t value) {
     for (uint8_t i = 0; i < 8; ++i) {
         dst[i] = uint8_t(value >> (8 * i));
     }
 }
 
-static inline void putFloat(uint8_t* dst, float value) {
+static inline void put_float(uint8_t* dst, float value) {
     static_assert(sizeof(float) == 4, "Requires 4-byte floats");
     uint32_t bits;
     memcpy(&bits, &value, sizeof(bits));
-    putU32(dst, bits);
+    put_u32(dst, bits);
 }
 
-static inline void makeLogRecord(
-    uint8_t (&out)[LOG_RECORD_BYTES],
+static inline void make_log_record(
+    uint8_t (&out)[logRecordBytes],
     const MotorState* motorState,
     const PressureTransducer* pt1,
     const PressureTransducer* pt2,
@@ -45,11 +45,12 @@ static inline void makeLogRecord(
     uint8_t stateId,
     float commandedMotorRotations,
     uint32_t droppedRecords,
-    bool timeValid = false
+    bool timeValid = false,
+    float commandedThrustLbf = 0.0f
 ) {
     memset(out, 0, sizeof(out));
 
-    out[0] = LOG_FORMAT_VERSION;
+    out[0] = logFormatVersion;
     out[1] = stateId;  // Numeric state instead of a string
 
     // Presence flags: absent fields stay zero, but are marked absent.
@@ -58,36 +59,36 @@ static inline void makeLogRecord(
            | (motorState ? 4 : 0)
            | (timeValid ? 8 : 0);
 
-    putU64(out + 4, unixTimeMs);
+    put_u64(out + 4, unixTimeMs);
 
-    if (pt1) putFloat(out + 12, pt1->getPressure(false));
-    if (pt2) putFloat(out + 16, pt2->getPressure(false));
+    if (pt1) put_float(out + 12, pt1->get_pressure(false));
+    if (pt2) put_float(out + 16, pt2->get_pressure(false));
 
     if (motorState) {
-        out[3] = (motorState->hasStatus0() ? 1 : 0)
-               | (motorState->hasStatus2() ? 2 : 0)
-               | (motorState->hasTelemetry() ? 4 : 0)
-               | (motorState->isFresh(
-                      Config::TELEMETRY_TIMEOUT_MS) ? 8 : 0);
+        out[3] = (motorState->has_status_0() ? 1 : 0)
+               | (motorState->has_status_2() ? 2 : 0)
+               | (motorState->has_telemetry() ? 4 : 0)
+               | (motorState->is_fresh(
+                      Config::kTelemetryTimeoutMs) ? 8 : 0);
 
-        putFloat(out + 20,
-            motorState->getPosition() * 360.0f / Config::GEAR_RATIO);
-        putFloat(out + 24, motorState->getTemperature());
-        putFloat(out + 28, motorState->getAppliedOutputPercent());
-        putFloat(out + 32, motorState->getRPM());
-        putFloat(out + 36, motorState->getVoltageRaw() / 136.5f);
-        putFloat(out + 40, motorState->getCurrentRaw() / 27.3f);
+        put_float(out + 20,
+            motorState->get_position() * 360.0f / Config::kGearRatio);
+        put_float(out + 24, motorState->get_temperature());
+        put_float(out + 28, motorState->get_applied_output_percent());
+        put_float(out + 32, motorState->get_rpm());
+        put_float(out + 36, motorState->get_voltage_raw() / 136.5f);
+        put_float(out + 40, motorState->get_current_raw() / 27.3f);
 
         // Preserve these existing fields as milliseconds since boot.
-        putU32(out + 48, motorState->getLastStatus0Time());
-        putU32(out + 52, motorState->getLastStatus2Time());
+        put_u32(out + 48, motorState->get_last_status_0_time());
+        put_u32(out + 52, motorState->get_last_status_2_time());
     }
 
-    putFloat(out + 44,
-        commandedMotorRotations * 360.0f / Config::GEAR_RATIO);
-    putU32(out + 56, droppedRecords);
+    put_float(out + 44,
+        commandedMotorRotations * 360.0f / Config::kGearRatio);
+    put_u32(out + 56, droppedRecords);
 
-    // Bytes 60–63 reserved; remain zero.
+    put_float(out + 60, commandedThrustLbf);
 }
 
 // One logger per firmware translation unit (each environment builds one source).
@@ -117,7 +118,7 @@ static ControlSchedule controlSchedule;
 /**
  * Initializes ControlSchedule struct
  */
-static inline void beginControlSchedule() {
+static inline void begin_control_schedule() {
     controlSchedule = ControlSchedule{};
     controlSchedule.nextStartUs = micros();
 }
@@ -126,12 +127,12 @@ static inline void beginControlSchedule() {
  * Waits until scheduled control cycle start time,
  * then updates controlSchedule struct
  */
-static inline void beginControlCycle() {
+static inline void begin_control_cycle() {
     while (static_cast<int32_t>(
         micros() - controlSchedule.nextStartUs) < 0) {
     }
 
-    controlSchedule.nextStartUs += Config::CONTROL_PERIOD_US;
+    controlSchedule.nextStartUs += Config::kControlPeriodUs;
     const uint32_t actualStartUs = micros();
     if (controlSchedule.hasPreviousStart) {
         const uint32_t spacing = actualStartUs - controlSchedule.previousStartUs;
@@ -146,8 +147,8 @@ static inline void beginControlCycle() {
  * writes to SD card until cycle runs out of time and
  * tracks if cycle ran late
  */
-static inline void finishControlCycle() {
-    sdLog.writeUntil(controlSchedule.nextStartUs);
+static inline void finish_control_cycle() {
+    sdLog.write_until(controlSchedule.nextStartUs);
 
     const int32_t lateUs = static_cast<int32_t>(
         micros() - controlSchedule.nextStartUs
@@ -158,19 +159,19 @@ static inline void finishControlCycle() {
 
         const uint32_t skipped =
             (static_cast<uint32_t>(lateUs) +
-             Config::CONTROL_PERIOD_US - 1) /
-            Config::CONTROL_PERIOD_US;
+             Config::kControlPeriodUs - 1) /
+            Config::kControlPeriodUs;
 
         // skips a step if it's time slot has been breached by the previous cycle
         // this keeps the schedule from shifting
         controlSchedule.missedSlots += skipped;
         controlSchedule.nextStartUs +=
-            skipped * Config::CONTROL_PERIOD_US;
+            skipped * Config::kControlPeriodUs;
     }
 }
 
 // Stable IDs shared by all tests, independent of their enum numbering.
-static inline uint8_t logStateId(const String& name) {
+static inline uint8_t log_state_id(const String& name) {
     if (name == F("waiting")) return 0;
     if (name == F("closed")) return 1;
     if (name == F("opening")) return 2;
@@ -186,19 +187,21 @@ static inline uint8_t logStateId(const String& name) {
     if (name == F("cycle_closed")) return 12;
     if (name == F("done")) return 13;
     if (name == F("timeout")) return 14;
+    if (name == F("feedforward")) return 15;
+    if (name == F("failed")) return 16;
     return 255;
 }
 
-static inline void reportSdError() {
+static inline void report_sd_error() {
     static bool reported = false;
-    if (sdLog.hasError() && !reported) {
+    if (sdLog.has_error() && !reported) {
         Serial.println(F("SD_ERROR: telemetry is not being saved."));
         reported = true;
     }
 }
 
-static inline bool beginSdLog() {
-    if (!sdLog.begin()) { reportSdError(); return false; }
+static inline bool begin_sd_log() {
+    if (!sdLog.begin()) { report_sd_error(); return false; }
     Serial.print(F("SD log: "));
     Serial.println(sdLog.name());
     return true;
@@ -206,7 +209,7 @@ static inline bool beginSdLog() {
 
 // Setup only: receive a 13-digit Unix timestamp in milliseconds, then newline.
 // Control scheduling starts after this function returns.
-static inline void waitForUnixTime() {
+static inline void wait_for_unix_time() {
     uint64_t timestamp = 0;
     uint8_t digits = 0;
     bool invalid = false;
@@ -214,7 +217,7 @@ static inline void waitForUnixTime() {
 
     Serial.println(F("READY_FOR_TIME"));
 
-    while (!sdLog.hasUnixTime()) {
+    while (!sdLog.has_unix_time()) {
         if (millis() - lastPrompt >= 10000UL) {
             Serial.println(F("READY_FOR_TIME"));
             lastPrompt = millis();
@@ -229,7 +232,7 @@ static inline void waitForUnixTime() {
             if (!invalid && digits == 13 &&
                 timestamp >= 1000000000000ULL &&
                 timestamp < 4102444800000ULL) {
-                sdLog.setUnixTime(timestamp);
+                sdLog.set_unix_time(timestamp);
                 Serial.println(F("TIME_SET"));
             } else {
                 Serial.println(F("INVALID_TIME"));
@@ -248,61 +251,62 @@ static inline void waitForUnixTime() {
     }
 }
 
-static inline bool logRow(const MotorState* motorState,
+static inline bool log_row(const MotorState* motorState,
                    const PressureTransducer* pt1,
                    const PressureTransducer* pt2,
                    unsigned long nowMs, const String& stateName,
-                   float commandedMotorRotations, bool finalRow = false) {
-    sdLog.updateClock(nowMs);
-    if (!sdLog.isActive()) {
-        if (finalRow && sdLog.isOpen()) sdLog.close();
+                   float commandedMotorRotations, bool finalRow = false,
+                   float commandedThrustLbf = 0.0f) {
+    sdLog.update_clock(nowMs);
+    if (!sdLog.is_active()) {
+        if (finalRow && sdLog.is_open()) sdLog.close();
         return false;
     }
     // At test completion, make room so a full queue cannot drop the final state.
     // Finalization is deliberately blocking and has no time-budget check.
-    if (finalRow && sdLog.hasFullBlock() && !sdLog.writeOneBlock()) {
+    if (finalRow && sdLog.has_full_block() && !sdLog.write_one_block()) {
         sdLog.close();
-        reportSdError();
+        report_sd_error();
         return false;
     }
     LogRecord record;
-    makeLogRecord(record.bytes, motorState, pt1, pt2, sdLog.unixTime(),
-                  logStateId(stateName), commandedMotorRotations, sdLog.dropped(),
-                  sdLog.hasUnixTime());
+    make_log_record(record.bytes, motorState, pt1, pt2, sdLog.unix_time(),
+                  log_state_id(stateName), commandedMotorRotations, sdLog.dropped(),
+                  sdLog.has_unix_time(), commandedThrustLbf);
     const bool queued = sdLog.enqueue(record);
     if (finalRow) {
         const bool closed = sdLog.close();
-        reportSdError();
+        report_sd_error();
         return queued && closed;
     }
     return queued;
 }
 
-static inline void serviceSdLog() {
-    sdLog.updateClock(millis());
-    if (sdLog.isActive()) sdLog.service();
-    reportSdError();
+static inline void service_sd_log() {
+    sdLog.update_clock(millis());
+    if (sdLog.is_active()) sdLog.service();
+    report_sd_error();
 }
 
-static inline bool closeSdLog() {
+static inline bool close_sd_log() {
     const bool ok = sdLog.close();
-    reportSdError();
+    report_sd_error();
     return ok;
 }
 
 // Used by the standalone SD bench test after sampling finishes.
-static inline void reportLogStatus(Print& out) {
+static inline void report_log_status(Print& out) {
     out.print(F("SD: buffered=")); out.print(sdLog.buffered());
-    out.print(F(" peak=")); out.print(sdLog.peakBuffered());
+    out.print(F(" peak=")); out.print(sdLog.peak_buffered());
     out.print(F(" dropped=")); out.print(sdLog.dropped());
-    out.print(F(" bytes=")); out.print(sdLog.writtenBytes());
-    out.print(F(" block_worst_us=")); out.print(sdLog.worstBlockUs());
-    out.print(F(" block_avg_us=")); out.print(sdLog.averageBlockUs(), 1);
-    out.print(F(" block_writes=")); out.print(sdLog.blockWriteCount());
-    out.print(F(" block_p95_upper_us=")); out.print(sdLog.blockPercentileUpperUs(95));
-    out.print(F(" block_p99_upper_us=")); out.print(sdLog.blockPercentileUpperUs(99));
-    out.print(F(" close_us=")); out.print(sdLog.finalizationUs());
+    out.print(F(" bytes=")); out.print(sdLog.written_bytes());
+    out.print(F(" block_worst_us=")); out.print(sdLog.worst_block_us());
+    out.print(F(" block_avg_us=")); out.print(sdLog.average_block_us(), 1);
+    out.print(F(" block_writes=")); out.print(sdLog.block_write_count());
+    out.print(F(" block_p95_upper_us=")); out.print(sdLog.block_percentile_upper_us(95));
+    out.print(F(" block_p99_upper_us=")); out.print(sdLog.block_percentile_upper_us(99));
+    out.print(F(" close_us=")); out.print(sdLog.finalization_us());
     out.print(F(" spacing_worst_us=")); out.print(controlSchedule.worstSpacingUs);
-    out.print(F(" sd_error=")); out.print(sdLog.hasError() ? 1 : 0);
-    out.print(F(" sd_closed=")); out.println(sdLog.isFinalized() ? 1 : 0);
+    out.print(F(" sd_error=")); out.print(sdLog.has_error() ? 1 : 0);
+    out.print(F(" sd_closed=")); out.println(sdLog.is_finalized() ? 1 : 0);
 }

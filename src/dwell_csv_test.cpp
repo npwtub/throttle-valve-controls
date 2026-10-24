@@ -17,9 +17,9 @@
 #include "log.h"
 
 namespace {
-MCP2515 mcp2515(Config::CAN_CS_PIN, 4000000UL);
-CanControl::SparkMax motor(mcp2515, Config::LOX_MOTOR_ID);
-MotorState motorState(Config::LOX_MOTOR_ID);
+MCP2515 mcp2515(Config::kCanCsPin, 4000000UL);
+CanControl::SparkMax motor(mcp2515, Config::kLoxMotorId);
+MotorState motorState(Config::kLoxMotorId);
 PressureTransducer pt1 = PressureTransducer(A2, 1000, 0.47, 4.5);
 PressureTransducer pt2 = PressureTransducer(A3, 1000, 0.47, 4.5);
 
@@ -49,22 +49,22 @@ bool positionReceivedDuringTravel = false;
 float commandedPosition = NAN;
 
 // sets position to motor
-void commandPosition(double target, unsigned long now) {
+void command_position(double target, unsigned long now) {
     motor.set_position(target, 0, 0, 0);
     commandedPosition = target;
     lastCommand = now;
 }
 
 // begins to  move motor to the next state setpoint
-void beginTravel(State next, double target, unsigned long now) {
+void begin_travel(State next, double target, unsigned long now) {
     state = next;
     stateStart = now;
     // Require a new encoder report before accepting the target as reached.
     positionReceivedDuringTravel = false;
-    commandPosition(target, now);
+    command_position(target, now);
 }
 
-const __FlashStringHelper* stateName() {
+const __FlashStringHelper* state_name() {
     switch (state) {
         case State::Waiting:
             return F("waiting");
@@ -84,9 +84,9 @@ const __FlashStringHelper* stateName() {
 
 void freeze(unsigned long now) {
     state = State::Frozen;
-    commandPosition(Config::CLOSED_ROTATIONS, now);
-    logRow(&motorState, &pt1, &pt2, now, stateName(), commandedPosition);
-    closeSdLog();
+    command_position(Config::kClosedRotations, now);
+    log_row(&motorState, &pt1, &pt2, now, state_name(), commandedPosition);
+    close_sd_log();
     Serial.print("froze after: ");
     Serial.print(now / 1000);
     Serial.println(" seconds");
@@ -94,11 +94,11 @@ void freeze(unsigned long now) {
 }  // namespace
 
 void setup() {
-    Serial.begin(Config::BAUD_RATE_LONG);
+    Serial.begin(Config::kBaudRateLong);
     mcp2515.reset();
     mcp2515.setBitrate(CAN_1000KBPS, MCP_8MHZ);
     mcp2515.setNormalOneShotMode();
-    beginSdLog();
+    begin_sd_log();
     lastLog = millis();
 }
 
@@ -109,7 +109,7 @@ void loop() {
                             mcp2515.readMessage(&frame) == MCP2515::ERROR_OK;
          ++count) {
         motor.handle_received_frame(frame);
-        if (motorState.processFrame(frame) &&
+        if (motorState.process_frame(frame) &&
             (frame.can_id & CAN_EFF_MASK &
              ~CanControl::LowLevel::SparkMax::SPARK_DEVICE_ID_MASK) ==
                 CanControl::LowLevel::SparkMax::SPARK_ARB_STATUS_2) {
@@ -126,7 +126,7 @@ void loop() {
     for (uint8_t count = 0; count < 16 && Serial.available() > 0; ++count) {
         if (Serial.read() == ' ' && state == State::Waiting) {
             cycleStart = now;
-            beginTravel(State::Opening, Config::OPEN_ROTATIONS, now);
+            begin_travel(State::Opening, Config::kOpenRotations, now);
         }
     }
 
@@ -141,16 +141,16 @@ void loop() {
             // The two-minute period runs from one opening command to the next.
             if (now - cycleStart >= cycleIntervalMs) {
                 cycleStart = now;
-                beginTravel(State::Opening, Config::OPEN_ROTATIONS, now);
+                begin_travel(State::Opening, Config::kOpenRotations, now);
             }
             break;
         case State::Opening:
             if (now - stateStart > travelTimeoutMs) {
                 freeze(now);
             } else if (positionReceivedDuringTravel &&
-                       motorState.atPosition(Config::OPEN_ROTATIONS, now,
-                                             Config::GOAL_POSITION_TOLERANCE,
-                                             Config::TELEMETRY_TIMEOUT_MS)) {
+                       motorState.at_position(Config::kOpenRotations, now,
+                                             Config::kGoalPositionTolerance,
+                                             Config::kTelemetryTimeoutMs)) {
                 // Start the full one-second dwell only after reaching open.
                 state = State::Open;
                 stateStart = now;
@@ -160,14 +160,14 @@ void loop() {
             break;
         case State::Open:
             if (now - stateStart >= timeOpenMs) {
-                beginTravel(State::Closing, Config::CLOSED_ROTATIONS, now);
+                begin_travel(State::Closing, Config::kClosedRotations, now);
             }
             break;
         case State::Closing:
             if (positionReceivedDuringTravel &&
-                motorState.atPosition(Config::CLOSED_ROTATIONS, now,
-                                      Config::GOAL_POSITION_TOLERANCE,
-                                      Config::TELEMETRY_TIMEOUT_MS)) {
+                motorState.at_position(Config::kClosedRotations, now,
+                                      Config::kGoalPositionTolerance,
+                                      Config::kTelemetryTimeoutMs)) {
                 state = State::Closed;
             } else if (now - stateStart >= travelTimeoutMs) {
                 freeze(now);  // Also stop subsequent cycles if closing fails.
@@ -180,14 +180,14 @@ void loop() {
     // Keep heartbeats and close commands running even after serial goes silent.
     if (state != State::Waiting && now - lastCommand >= controlIntervalMs) {
         const bool openingOrOpen = state == State::Opening || state == State::Open;
-        commandPosition(openingOrOpen ? Config::OPEN_ROTATIONS : Config::CLOSED_ROTATIONS, now);
+        command_position(openingOrOpen ? Config::kOpenRotations : Config::kClosedRotations, now);
     }
         
     // print at 40ms 25Hz when not frozen, closed, or waiting
-    if (state != State::Frozen && now - lastLog >= Config::LOG_FREQUENCY_25_HZ) {
-        lastLog += Config::LOG_FREQUENCY_25_HZ;
-        if (now - lastLog >= Config::LOG_FREQUENCY_25_HZ) lastLog = now;  // No bursts after delays.
-        logRow(&motorState, &pt1, &pt2, now, stateName(), commandedPosition);
+    if (state != State::Frozen && now - lastLog >= Config::kLogFrequency25Hz) {
+        lastLog += Config::kLogFrequency25Hz;
+        if (now - lastLog >= Config::kLogFrequency25Hz) lastLog = now;  // No bursts after delays.
+        log_row(&motorState, &pt1, &pt2, now, state_name(), commandedPosition);
     } 
-    serviceSdLog();
+    service_sd_log();
 }
