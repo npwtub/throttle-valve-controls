@@ -18,15 +18,15 @@ class MotorState
 {
 public:
 
-    explicit MotorState(uint8_t motorID)
-        : motorID_(motorID)
+    explicit MotorState(uint8_t motorId)
+        : motorId_(motorId)
     {
     }
 
     // Call this for every incoming CAN frame.
     // Returns true if a valid Status 0 or Status 2
     // frame was processed.
-    bool processFrame(const struct can_frame& frame)
+    bool process_frame(const struct can_frame& frame)
     {
         namespace Spark = CanControl::LowLevel::SparkMax;
 
@@ -41,21 +41,21 @@ public:
         const uint32_t id = frame.can_id & CAN_EFF_MASK;
 
         // Ignore frames belonging to other motors.
-        const uint8_t receivedMotorID =
+        const uint8_t receivedMotorId =
             id & Spark::SPARK_DEVICE_ID_MASK;
 
-        if (receivedMotorID != motorID_)
+        if (receivedMotorId != motorId_)
             return false;
 
         // Remove the device ID to identify frame type.
-        const uint32_t baseID =
+        const uint32_t baseId =
             id & ~Spark::SPARK_DEVICE_ID_MASK;
 
         // ----------------------------------------------
         // STATUS 0
         // Output %, voltage, current, temperature, limits
         // ----------------------------------------------
-        if (baseID == Spark::SPARK_ARB_STATUS_0)
+        if (baseId == Spark::SPARK_ARB_STATUS_0)
         {
             Spark::Spark_STATUS_0_t status{};
 
@@ -87,7 +87,7 @@ public:
         // STATUS 2
         // Encoder velocity and position
         // ----------------------------------------------
-        if (baseID == Spark::SPARK_ARB_STATUS_2)
+        if (baseId == Spark::SPARK_ARB_STATUS_2)
         {
             Spark::Spark_STATUS_2_t status{};
 
@@ -118,43 +118,43 @@ public:
     // --------------------------------------------------
 
     // Applied output: -1.0 to +1.0
-    float getAppliedOutput() const
+    float get_applied_output() const
     {
         return appliedOutput_;
     }
 
     // Applied output as percentage: -100 to +100
-    float getAppliedOutputPercent() const
+    float get_applied_output_percent() const
     {
         return appliedOutput_ * 100.0f;
     }
 
     // Primary encoder velocity (default RPM)
-    float getRPM() const
+    float get_rpm() const
     {
         return rpm_;
     }
 
     // Primary encoder position (default rotations)
-    float getPosition() const
+    float get_position() const
     {
         return position_;
     }
 
     // Motor temperature in degrees Celsius
-    float getTemperature() const
+    float get_temperature() const
     {
         return static_cast<float>(temperature_);
     }
 
     // Raw decoded voltage field
-    uint16_t getVoltageRaw() const
+    uint16_t get_voltage_raw() const
     {
         return voltageRaw_;
     }
 
     // Raw decoded current field
-    uint16_t getCurrentRaw() const
+    uint16_t get_current_raw() const
     {
         return currentRaw_;
     }
@@ -163,27 +163,27 @@ public:
     // TELEMETRY VALIDITY
     // --------------------------------------------------
 
-    bool hasStatus0() const
+    bool has_status_0() const
     {
         return receivedStatus0_;
     }
 
-    bool hasStatus2() const
+    bool has_status_2() const
     {
         return receivedStatus2_;
     }
 
-    bool hasTelemetry() const
+    bool has_telemetry() const
     {
         return receivedStatus0_ && receivedStatus2_;
     }
 
     // Target and tolerance use motor rotations. Only fresh, finite position
     // feedback can satisfy this check; callers track feedback since a command.
-    bool atPosition(double target, unsigned long now, double tolerance,
+    bool at_position(double target, unsigned long now, double tolerance,
                     unsigned long timeoutMs) const
     {
-        return hasStatus2() &&
+        return has_status_2() &&
                now - lastStatus2_ <= timeoutMs &&
                isfinite(position_) &&
                fabs(position_ - target) <= tolerance;
@@ -191,9 +191,9 @@ public:
 
     // Check whether both status frames have arrived
     // within the specified timeout.
-    bool isFresh(unsigned long timeoutMs = 250) const
+    bool is_fresh(unsigned long timeoutMs = 250) const
     {
-        if (!hasTelemetry())
+        if (!has_telemetry())
             return false;
 
         const unsigned long now = millis();
@@ -203,19 +203,19 @@ public:
             (now - lastStatus2_ <= timeoutMs);
     }
 
-    unsigned long getLastStatus0Time() const
+    unsigned long get_last_status_0_time() const
     {
         return lastStatus0_;
     }
 
-    unsigned long getLastStatus2Time() const
+    unsigned long get_last_status_2_time() const
     {
         return lastStatus2_;
     }
 
 private:
 
-    uint8_t motorID_;
+    uint8_t motorId_;
 
     // Status 0 cached values
     float appliedOutput_ = 0.0f;

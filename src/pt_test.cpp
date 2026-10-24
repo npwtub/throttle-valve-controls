@@ -12,7 +12,7 @@ PressureTransducer pt1 = PressureTransducer(A2, 1000, 0.47, 4.5);
 PressureTransducer pt2 = PressureTransducer(A3, 1000, 0.47, 4.5);
 
 void setup () {
-    Serial.begin(Config::BAUD_RATE_LONG);
+    Serial.begin(Config::kBaudRateLong);
 }
 
 
@@ -21,13 +21,13 @@ void loop (){
     unsigned long now = millis();
 
     if (now - lastPrint > 500) {
-        double pressure1 = pt1.getPressure();
+        double pressure1 = pt1.get_pressure();
         lastPrint = now;
         Serial.print("  PSI 1: ");
         Serial.print(pressure1);
         Serial.print(" | ");
 
-        double pressure2 = pt2.getPressure();
+        double pressure2 = pt2.get_pressure();
         Serial.print("  PSI 2: ");
         Serial.println(pressure2);
     }
