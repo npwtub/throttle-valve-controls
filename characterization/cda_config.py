@@ -6,7 +6,7 @@ CONFIG = {
         "read_csv_kwargs": {"sep": None, "engine": "python"},
         "columns": {
             "time": {
-                "aliases": ["timestamp_ms", "time_ms", "timestamp", "time", "t_ms", "t"],
+                "aliases": ["timestamp_unix_ms", "timestamp_epoch_ms", "timestamp_ms", "time_ms", "timestamp", "time", "t_ms", "t"],
                 "unit": "ms",
                 "required": True,
             },
@@ -18,13 +18,33 @@ CONFIG = {
                 "aliases": ["state", "test_state"],
                 "required": False,
             },
+            "time_valid": {
+                "aliases": ["time_valid", "timestamp_valid"],
+                "required": False,
+            },
+            "p_up_present": {
+                "aliases": ["pt1_present", "p_up_present", "upstream_pt_present"],
+                "required": False,
+            },
+            "p_down_present": {
+                "aliases": ["pt2_present", "p_down_present", "downstream_pt_present"],
+                "required": False,
+            },
+            "motor_present": {
+                "aliases": ["motor_present"],
+                "required": False,
+            },
+            "commanded_angle": {
+                "aliases": ["commanded_position_deg", "commanded_angle_deg", "target_angle_deg"],
+                "required": False,
+            },
             "p_up": {
-                "aliases": ["pt_up_psi", "p_up_psi", "upstream_pressure_psi", "upstream_psi", "pt_up", "p_up", "upstream_pressure"],
+                "aliases": ["pt1_psi", "pt_up_psi", "p_up_psi", "upstream_pressure_psi", "upstream_psi", "pt1", "pt_up", "p_up", "upstream_pressure"],
                 "unit": "psi",
                 "required": True,
             },
             "p_down": {
-                "aliases": ["pt_down_psi", "p_down_psi", "downstream_pressure_psi", "downstream_psi", "pt_down", "p_down", "downstream_pressure"],
+                "aliases": ["pt2_psi", "pt_down_psi", "p_down_psi", "downstream_pressure_psi", "downstream_psi", "pt2", "pt_down", "p_down", "downstream_pressure"],
                 "unit": "psi",
                 "required": True,
             },
@@ -93,7 +113,7 @@ CONFIG = {
         "up_down_warning_percent": 15.0,
         "min_cts_dp_pa": 1.0,
         "min_valve_dp_pa": 1.0,
-        "expected_arduino_rate_hz": 25.0,
+        "expected_arduino_rate_hz": None,
         "expected_cts_rate_hz": None,
         "rate_warning_percent": 25.0,
     },

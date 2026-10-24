@@ -48,6 +48,11 @@ class Columns:
     arduino_time: str
     arduino_angle: str
     arduino_state: Optional[str]
+    arduino_time_valid: Optional[str]
+    arduino_p_up_present: Optional[str]
+    arduino_p_down_present: Optional[str]
+    arduino_motor_present: Optional[str]
+    arduino_commanded_angle: Optional[str]
     arduino_p_up: str
     arduino_p_down: str
     cts_time: str
@@ -138,6 +143,11 @@ def detect_columns(arduino: pd.DataFrame, cts: pd.DataFrame) -> Columns:
         arduino_time=find_column(arduino, "arduino", "time"),
         arduino_angle=find_column(arduino, "arduino", "angle"),
         arduino_state=find_column(arduino, "arduino", "state"),
+        arduino_time_valid=find_column(arduino, "arduino", "time_valid"),
+        arduino_p_up_present=find_column(arduino, "arduino", "p_up_present"),
+        arduino_p_down_present=find_column(arduino, "arduino", "p_down_present"),
+        arduino_motor_present=find_column(arduino, "arduino", "motor_present"),
+        arduino_commanded_angle=find_column(arduino, "arduino", "commanded_angle"),
         arduino_p_up=find_column(arduino, "arduino", "p_up"),
         arduino_p_down=find_column(arduino, "arduino", "p_down"),
         cts_time=find_column(cts, "cts", "time"),
@@ -169,8 +179,10 @@ def time_to_seconds(series: pd.Series, column_name: str, configured_unit: str) -
     if numeric.notna().sum() >= max(3, int(0.8 * len(series))):
         unit = infer_time_unit(column_name, configured_unit)
         factor = {"s": 1.0, "ms": 1e-3, "us": 1e-6}[unit]
-        out = numeric.astype(float) * factor
-        return out - out.dropna().iloc[0]
+        numeric = numeric.astype(float)
+        first = numeric.dropna().iloc[0]
+        # subtract first so large unix timestamps keep their sub-second resolution.
+        return (numeric - first) * factor
 
     dt = pd.to_datetime(series, errors="coerce")
     if dt.notna().sum() < 3:
@@ -313,12 +325,34 @@ def prepare_arduino(df: pd.DataFrame, cols: Columns, offset_s: float) -> pd.Data
         else ""
     )
 
+    if cols.arduino_commanded_angle is not None:
+        out["commanded_angle_deg"] = pd.to_numeric(
+            out[cols.arduino_commanded_angle], errors="coerce"
+        )
+    else:
+        out["commanded_angle_deg"] = np.nan
+
     up_fallback = field_config("arduino", "p_up").get("unit", "psi")
     down_fallback = field_config("arduino", "p_down").get("unit", "psi")
     up_unit = infer_pressure_unit(cols.arduino_p_up, up_fallback)
     down_unit = infer_pressure_unit(cols.arduino_p_down, down_fallback)
     out["p_up_pa"] = pressure_to_pa(pd.to_numeric(out[cols.arduino_p_up], errors="coerce"), up_unit)
     out["p_down_pa"] = pressure_to_pa(pd.to_numeric(out[cols.arduino_p_down], errors="coerce"), down_unit)
+
+    # new sd logs carry presence flags, so use them instead of trusting placeholder values.
+    if cols.arduino_p_up_present is not None:
+        present = pd.to_numeric(out[cols.arduino_p_up_present], errors="coerce").fillna(0) != 0
+        out.loc[~present, "p_up_pa"] = np.nan
+    if cols.arduino_p_down_present is not None:
+        present = pd.to_numeric(out[cols.arduino_p_down_present], errors="coerce").fillna(0) != 0
+        out.loc[~present, "p_down_pa"] = np.nan
+    if cols.arduino_motor_present is not None:
+        present = pd.to_numeric(out[cols.arduino_motor_present], errors="coerce").fillna(0) != 0
+        out.loc[~present, "angle_deg"] = np.nan
+    if cols.arduino_time_valid is not None:
+        valid_time = pd.to_numeric(out[cols.arduino_time_valid], errors="coerce").fillna(0) != 0
+        out = out.loc[valid_time].copy()
+
     out["valve_dp_pa"] = out["p_up_pa"] - out["p_down_pa"]
     return out.sort_values("time_s").reset_index(drop=True)
 
@@ -463,6 +497,7 @@ def characterize(arduino: pd.DataFrame, cts: pd.DataFrame, dwells: Iterable[Dwel
             "nominal_angle_deg": dwell.nominal_angle_deg,
             "actual_angle_deg_mean": float(a["angle_deg"].mean()),
             "actual_angle_deg_std": float(a["angle_deg"].std(ddof=0)),
+            "commanded_angle_deg_mean": float(a["commanded_angle_deg"].mean()),
             "window_start_s": dwell.use_start_s,
             "window_end_s": dwell.use_end_s,
             "arduino_samples": int(len(a)),
@@ -483,21 +518,36 @@ def characterize(arduino: pd.DataFrame, cts: pd.DataFrame, dwells: Iterable[Dwel
 
 
 def build_test_angle_means(characterization: pd.DataFrame) -> pd.DataFrame:
-    # one test gets one vote per angle. up/down are averaged inside that test first.
+    # average each direction first so up/down get equal weight inside a test.
     rows = []
     for (test_id, angle), group in characterization.groupby(["test_id", "nominal_angle_deg"], sort=True):
-        valid = group["cda_m2"].dropna()
-        if valid.empty:
-            continue
         up = group.loc[group["direction"] == "up", "cda_m2"].dropna()
         down = group.loc[group["direction"] == "down", "cda_m2"].dropna()
+        up_mean = float(up.mean()) if len(up) else float("nan")
+        down_mean = float(down.mean()) if len(down) else float("nan")
+        direction_means = [v for v in [up_mean, down_mean] if np.isfinite(v)]
+        if not direction_means:
+            continue
+
+        if np.isfinite(up_mean) and np.isfinite(down_mean):
+            denom = max(abs(up_mean), abs(down_mean), 1e-30)
+            diff_pct = abs(up_mean - down_mean) / denom * 100.0
+            if diff_pct > P["up_down_warning_percent"]:
+                print(
+                    f"warning: {test_id} {float(angle):.1f} deg up/down cda differ by {diff_pct:.1f}%",
+                    file=sys.stderr,
+                )
+        else:
+            diff_pct = float("nan")
+
         rows.append({
             "test_id": test_id,
             "angle_deg": float(angle),
-            "cda_test_mean_m2": float(valid.mean()),
-            "cda_up_m2": float(up.mean()) if len(up) else float("nan"),
-            "cda_down_m2": float(down.mean()) if len(down) else float("nan"),
-            "measurements_in_test": int(len(valid)),
+            "cda_test_mean_m2": float(np.mean(direction_means)),
+            "cda_up_m2": up_mean,
+            "cda_down_m2": down_mean,
+            "up_down_difference_percent": diff_pct,
+            "measurements_in_test": int(group["cda_m2"].notna().sum()),
         })
     return pd.DataFrame(rows)
 
@@ -515,6 +565,18 @@ def build_combined_lookup(test_means: pd.DataFrame) -> pd.DataFrame:
             "tests_used": int(len(values)),
         })
     return pd.DataFrame(rows).sort_values("angle_deg").reset_index(drop=True)
+
+
+def warn_for_missing_lut_angles(lookup: pd.DataFrame) -> None:
+    if lookup.empty:
+        raise ValueError("no valid cda values were produced")
+    step = float(P["lut_angle_increment_deg"])
+    expected = np.arange(P["angle_min_deg"], P["angle_max_deg"] + 0.5 * step, step)
+    actual = set(np.round(lookup["angle_deg"].to_numpy(dtype=float), 9))
+    missing = [float(v) for v in expected if round(float(v), 9) not in actual]
+    if missing:
+        values = ", ".join(f"{v:g}" for v in missing)
+        print(f"warning: final lut is missing configured angles: {values}", file=sys.stderr)
 
 
 # =============================================================================
@@ -569,6 +631,15 @@ def process_trial(cts: pd.DataFrame, cts_raw: pd.DataFrame, trial: TrialInput, o
     arduino_raw = read_table(trial.path, "arduino")
     cols = detect_columns(arduino_raw, cts_raw)
     arduino = prepare_arduino(arduino_raw, cols, trial.offset_s)
+
+    # the newer sd logger can still have pt columns even when the pts were not plugged in.
+    # catch that here so a format-only log does not turn into an empty/invalid lut later.
+    valid_pt = arduino["p_up_pa"].notna() & arduino["p_down_pa"].notna()
+    if not valid_pt.any():
+        raise ValueError(
+            f"{trial.test_id} log format was recognized, but it has no usable upstream/downstream pt data"
+        )
+
     dwells, dwell_source = detect_dwells(arduino)
     validate_overlap(arduino, cts, dwells)
 
@@ -610,6 +681,7 @@ def process(cts_path: Path, trials: list[TrialInput], output_dir: Path) -> None:
     combined_characterization = pd.concat(all_characterization, ignore_index=True)
     combined_test_means = pd.concat(all_test_means, ignore_index=True)
     combined_lookup = build_combined_lookup(combined_test_means)
+    warn_for_missing_lut_angles(combined_lookup)
 
     combined_characterization.to_csv(output_dir / "combined_characterization.csv", index=False)
     combined_test_means.to_csv(output_dir / "combined_test_angle_means.csv", index=False)

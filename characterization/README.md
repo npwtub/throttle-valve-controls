@@ -241,3 +241,46 @@ still need to do with the real test files:
 - compare repeated tests and up/down sweeps for consistency
 - adjust dwell trimming / warnings if the real data shows they need tuning
 - validate the final combined lut before putting it into the feedforward controller
+
+## new sd logger format
+
+`LOG0018.csv` was used as the compatibility check for the newer sd-card logger format. the default config now recognizes:
+
+```text
+timestamp_unix_ms       -> time
+position_deg            -> measured valve angle
+commanded_position_deg  -> commanded valve angle
+state                   -> test state
+pt1_psi                 -> upstream valve pt
+pt2_psi                 -> downstream valve pt
+```
+
+it also uses these validity fields when they are present:
+
+```text
+time_valid
+pt1_present
+pt2_present
+motor_present
+```
+
+if the wiring convention changes and pt1/pt2 are swapped, only change the `p_up` / `p_down` aliases in `cda_config.py`.
+
+there is no fixed arduino sample-rate assumption anymore. the script uses the actual timestamps and only reports the measured rate for diagnostics.
+
+`LOG0018.csv` itself is a format-only example for this stack because both pt presence flags are zero and both pressure columns are empty. the parser/dwell detection works on it, but it cannot calculate valve cda without real pt data.
+
+## what has been checked
+
+- both python files compile cleanly
+- the new `LOG0018.csv` format is recognized without editing the processing code
+- its unix-ms timestamps are converted without losing the sub-second timing
+- the measured logger rate is about 200 hz from the actual timestamps
+- the newer presence/validity flags are respected
+- angle-plateau fallback detects the repeated steady positions in the new-format example
+- a four-test synthetic run was checked with two tests on `0,10,20...90` and two tests on `5,15,25...85`
+- the combined result produced `0,5,10,15...90` with two physical tests averaged at each angle
+- up/down values are averaged equally inside each test before tests are averaged together
+- the script warns if a configured 5 degree lut angle is missing instead of silently filling/interpolating it
+
+actual cda validation still requires logs that contain real valve pt data plus the matching cts data and yorg offsets.
