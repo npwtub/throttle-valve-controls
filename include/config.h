@@ -21,8 +21,8 @@ constexpr unsigned long kBaudRateLong = 57600;    // 50 ft cable
 constexpr uint8_t kCanCsPin = 10;
 constexpr uint8_t kSdCsPin = 9;
 
-// The control period is 175 hz.
-constexpr uint32_t kControlPeriodUs = 5714;
+// The control period is 150 hz.
+constexpr uint32_t kControlPeriodUs = 6667;
 
 // Time left needed in a control cycle for SD write to begin
 // kSdWriteEstimateUs + kSdWriteMarginUs
@@ -57,8 +57,8 @@ constexpr size_t kValvePointCount = sizeof(kValveCdA) / sizeof(kValveCdA[0]);
     constexpr int kPt2InputPin = A3;
     constexpr float kPt1MaxPsi = 1000;
     constexpr float kPt2MaxPsi = 1000;
-    constexpr double kPtMinVoltage = 0.47;
-    constexpr double kPtMaxVoltage = 4.5;
+    constexpr double kPtMinVoltage = 0.0135;
+    constexpr double kPtMaxVoltage = 5;
 }  // namespace Config
 
 /**
@@ -80,4 +80,34 @@ namespace Engine {
     //length of arrays above. each should be the same. otherwise interpolation cannot work
     constexpr size_t kPointCount = sizeof(kThrustLbf) / sizeof(kThrustLbf[0]);
 
+
+    constexpr double kRampUpThrust[] = {
+    181.66, 191.40, 195.93, 199.32, 206.59, 208.32, 209.47, 210.25,
+    217.66, 218.38, 218.88, 219.22, 219.45, 219.62, 230.12, 230.69,
+    231.09, 231.37, 231.56, 231.69, 231.78, 231.85, 231.89, 247.62,
+    248.36, 248.86, 249.21, 249.45, 249.61, 249.73, 249.81, 249.87,
+    249.91, 267.53, 268.29, 268.81, 269.17, 269.42, 269.60, 269.72,
+    269.80, 269.86, 269.90, 287.67, 288.39, 288.88, 289.22, 289.46,
+    289.62, 289.73, 289.81, 289.87, 289.91, 307.80, 308.48, 308.94,
+    309.26, 309.49, 309.64, 309.75, 309.82, 309.88, 309.91, 327.92,
+    328.56, 329.00, 329.30, 329.51, 329.66, 329.76, 329.83, 329.88,
+    329.92, 347.85, 348.45, 348.87, 349.15, 349.35, 349.52, 349.67,
+    349.77, 349.84, 349.89, 367.26, 368.10, 368.67, 369.07, 369.35,
+    369.55, 369.68, 369.78, 369.84, 369.89, 387.31, 388.12, 388.69,
+    389.09, 389.36, 389.55, 389.69, 389.78, 389.85, 389.89, 407.34,
+    408.15, 408.70, 409.09, 409.37, 409.56, 409.69, 409.78, 409.85,
+    409.89, 427.32, 428.12, 428.67, 429.06, 429.33, 429.51, 429.45,
+    429.06, 429.46, 429.79, 444.70, 445.80, 445.81, 445.52, 445.03,
+    445.64, 446.23, 446.78, 447.28, 446.84, 459.80, 459.37, 458.65,
+    459.48, 460.27, 461.02, 461.72, 462.37, 461.69, 460.89
+    };
+
+    constexpr double kFlightThrustProfile[] = {
+        250.86, 264.58, 278.31, 294.30, 307.02, 310.80,
+        303.02, 287.01, 272.00, 226.47, 200.08, 200.08,
+        200.08, 200.08, 218.15, 228.27, 232.61, 234.00,
+        233.94, 201.63, 200.08, 200.08, 200.08, 200.08,
+        200.08, 200.08, 241.47, 272.81, 273.88, 263.57,
+        250.66, 239.69, 231.55, 225.89, 222.02, 220.29
+    };
 }  // namespace Engine

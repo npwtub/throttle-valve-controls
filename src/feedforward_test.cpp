@@ -21,7 +21,7 @@ namespace {
 // test will follow thrust profile setpoints, splitting each one equally
 // along to total length of the test
 constexpr unsigned long kTestLengthMs = 15000;
-constexpr double kThrustProfileLbf[] = {430};
+constexpr double kThrustProfileLbf[] = {300};
 constexpr size_t kThrustProfileLength =
     sizeof(kThrustProfileLbf) / sizeof(kThrustProfileLbf[0]);
 constexpr unsigned long kSetpointDurationMs = kTestLengthMs / kThrustProfileLength;
@@ -33,8 +33,8 @@ constexpr double kFluidDensityLbmPerFt3 = 62.26;
 MCP2515 mcp2515(Config::kCanCsPin, 4000000UL);
 CanControl::SparkMax motor(mcp2515, Config::kLoxMotorId);
 MotorState motorState(Config::kLoxMotorId);
-PressureTransducer pt1(A2, 1000, 0.0135, 5.0);
-PressureTransducer pt2(A3, 1000, 0.0135, 5.0);
+PressureTransducer pt1(Config::kPt1InputPin, Config::kPt1MaxPsi, Config::kPtMinVoltage, Config::kPtMaxVoltage);
+PressureTransducer pt2(Config::kPt2InputPin, Config::kPt2MaxPsi, Config::kPtMinVoltage, Config::kPtMaxVoltage);
 
 enum class TestState {
     InProgress,
@@ -91,6 +91,7 @@ void setup() {
         fail_test(F("SD initialization failed"));
     }
     // checks the whole thrust profile before starting test
+    // const double upstreamPressurePsi = 500;
     const double upstreamPressurePsi = pt1.get_pressure(false);
     for (size_t index = 0; index < kThrustProfileLength; ++index) {
         if (!Feedforward::set_thrust_to_mdot(
@@ -138,6 +139,7 @@ void loop() {
             // calculate target mdot and dp with target thrust and upstream pressure
             commandedThrustLbf = kThrustProfileLbf[thrustSetpointIndex];
             const double upstreamPressurePsi = pt1.get_pressure(false);
+            // const double upstreamPressurePsi = 500;
             const Feedforward::ThrustTargets targets = Feedforward::set_thrust_to_mdot(
                 commandedThrustLbf, upstreamPressurePsi);
             if (!targets.valid) {

@@ -26,7 +26,7 @@ namespace {
  * logged test data to build the cda vs angle relationship for this valve.
  */
 // constexpr double kStartAngleDeg = Config::kClosedTheta;
-constexpr double kStartAngleDeg = 5.0;
+constexpr double kStartAngleDeg = 0;
 constexpr double kEndAngleDeg = Config::kOpenTheta;
 constexpr double kAngleIncrementDeg = 10.0;
 constexpr unsigned long kDwellTimeMs = 3000;
@@ -38,8 +38,8 @@ constexpr unsigned long kTravelTimeoutMs = 3000;
 MCP2515 mcp2515(Config::kCanCsPin, 4000000UL);
 CanControl::SparkMax motor(mcp2515, Config::kLoxMotorId);
 MotorState motorState(Config::kLoxMotorId);
-PressureTransducer ptUp(Config::kPt1InputPin, Config::kPt1MaxPsi, Config::kPtMinVoltage, Config::kPtMaxVoltage);
-PressureTransducer ptDown(Config::kPt2InputPin, Config::kPt2MaxPsi, Config::kPtMinVoltage, Config::kPtMaxVoltage);
+PressureTransducer pt1(Config::kPt1InputPin, Config::kPt1MaxPsi, Config::kPtMinVoltage, Config::kPtMaxVoltage);
+PressureTransducer pt2(Config::kPt2InputPin, Config::kPt2MaxPsi, Config::kPtMinVoltage, Config::kPtMaxVoltage);
 
 enum class State {
     Waiting,
@@ -185,6 +185,13 @@ void advance_setpoint_or_finish(unsigned long now) {
 void setup() {
     Serial.begin(Config::kBaudRateLong);
 
+    
+    //check PT values before starting. PT1 should be near tank pressure, PT2 ambient
+    Serial.print("PT 1: ");
+    Serial.print(pt1.get_pressure(false));
+    Serial.print(" | PT 2: ");
+    Serial.print(pt2.get_pressure(false));
+
     pinMode(Config::kSdCsPin, OUTPUT);
     digitalWrite(Config::kSdCsPin, HIGH);
     mcp2515.reset();
@@ -192,6 +199,7 @@ void setup() {
     mcp2515.setNormalOneShotMode();
 
     begin_sd_log();
+    wait_for_unix_time();
     begin_control_schedule();
 }
 
@@ -261,7 +269,7 @@ void loop() {
 
     // Queue one row per cycle and flush/close exactly once at completion.
     const bool testFinished = state == State::Finished || state == State::TravelTimeout;
-    log_row(&motorState, &ptUp, &ptDown, millis(), state_name(),
+    log_row(&motorState, &pt1, &pt2, millis(), state_name(),
             state == State::Waiting ? NAN : targetPositionRotations,
             testFinished && !finalReportSent);
     finish_control_cycle();
