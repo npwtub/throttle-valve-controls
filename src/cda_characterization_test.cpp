@@ -26,7 +26,7 @@ namespace {
  * logged test data to build the cda vs angle relationship for this valve.
  */
 // constexpr double kStartAngleDeg = Config::kClosedTheta;
-constexpr double kStartAngleDeg = 0;
+constexpr double kStartAngleDeg = 5;
 constexpr double kEndAngleDeg = Config::kOpenTheta;
 constexpr double kAngleIncrementDeg = 10.0;
 constexpr unsigned long kDwellTimeMs = 3000;
