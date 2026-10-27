@@ -20,8 +20,8 @@ namespace {
 MCP2515 mcp2515(Config::kCanCsPin, 4000000UL);
 CanControl::SparkMax motor(mcp2515, Config::kLoxMotorId);
 MotorState motorState(Config::kLoxMotorId);
-PressureTransducer pt1 = PressureTransducer(A2, 1000, 0.47, 4.5);
-PressureTransducer pt2 = PressureTransducer(A3, 1000, 0.47, 4.5);
+PressureTransducer pt1 = PressureTransducer(Config::kPt1InputPin, Config::kPt1MaxPsi, Config::kPtMinVoltage, Config::kPtMaxVoltage);
+PressureTransducer pt2 = PressureTransducer(Config::kPt1InputPin, Config::kPt2MaxPsi, Config::kPtMinVoltage, Config::kPtMaxVoltage);
 
  // Motor communication keeps its own 50 Hz schedule, independent of logging.
 constexpr unsigned long controlIntervalMs = 20;

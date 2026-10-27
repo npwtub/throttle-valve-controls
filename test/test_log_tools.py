@@ -26,6 +26,15 @@ class DecoderTests(unittest.TestCase):
                 data[1] = state_id
                 self.assertEqual(decode_record(data)["state"], expected)
 
+    def test_cda_characterization_states(self):
+        for state_id, expected in ((17, "moving_up"), (18, "moving_down"),
+                                   (19, "at_setpoint_up"), (20, "at_setpoint_down"),
+                                   (21, "finished"), (22, "travel_timeout")):
+            with self.subTest(state_id=state_id):
+                data = bytearray(sample())
+                data[1] = state_id
+                self.assertEqual(decode_record(data)["state"], expected)
+
     def test_layout_and_values(self):
         self.assertEqual(RECORD.size, 64)
         row = decode_record(sample())

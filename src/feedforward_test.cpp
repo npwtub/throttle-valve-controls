@@ -1,8 +1,9 @@
 /**
  * Runs a thrust profile using the liquid-valve feedforward model.
  * - PT1 measures pressure upstream of the throttle; PT2 is logged only.
- * - Each thrust setpoint selects LOX flow and valve pressure drop from Engine.
- * - The downstream-pressure target is live PT1 minus that pressure drop.
+ * - Each thrust setpoint selects LOX flow and valve outlet pressure from Engine.
+ * - Water flow is scaled to match the LOX valve opening at the same pressure drop.
+ * - The valve pressure drop is live PT1 minus that outlet-pressure target.
  * - The feedforward helper converts those targets into a valve angle.
  * - Commands closed after the profile finishes or the model rejects a request.
  * - Starts after the Unix-time handshake, as in the original test.
@@ -16,16 +17,19 @@
 #include "feedforward.h"
 #include "log.h"
 #include "motor_state.h"
+#include "thrust_profiles.h"
 
 namespace {
 // test will follow thrust profile setpoints, splitting each one equally
 // along to total length of the test
-constexpr unsigned long kTestLengthMs = 15000;
-constexpr double kThrustProfileLbf[] = {430};
+constexpr unsigned long kTestLengthMs = 15500;
+constexpr auto& kThrustProfileLbf = ThrustProfile::kRampUpThrust;
+//constexpr unsigned long kTestLengthMs = 29700;
+//constexpr auto& kThrustProfileLbf = ThrustProfile::kFlightProfile;
 constexpr size_t kThrustProfileLength =
     sizeof(kThrustProfileLbf) / sizeof(kThrustProfileLbf[0]);
-constexpr unsigned long kSetpointDurationMs = kTestLengthMs / kThrustProfileLength;
-constexpr unsigned long kCloseTimeoutMs = 3000;
+constexpr double kSetpointDurationMs = kTestLengthMs / kThrustProfileLength;
+constexpr double kCloseTimeoutMs = 3000;
 
 // water density at ~75 F
 constexpr double kFluidDensityLbmPerFt3 = 62.26;
@@ -33,8 +37,8 @@ constexpr double kFluidDensityLbmPerFt3 = 62.26;
 MCP2515 mcp2515(Config::kCanCsPin, 4000000UL);
 CanControl::SparkMax motor(mcp2515, Config::kLoxMotorId);
 MotorState motorState(Config::kLoxMotorId);
-PressureTransducer pt1(A2, 1000, 0.0135, 5.0);
-PressureTransducer pt2(A3, 1000, 0.0135, 5.0);
+PressureTransducer pt1(Config::kPt1InputPin, Config::kPt1MaxPsi, Config::kPtMinVoltage, Config::kPtMaxVoltage);
+PressureTransducer pt2(Config::kPt2InputPin, Config::kPt2MaxPsi, Config::kPtMinVoltage, Config::kPtMaxVoltage);
 
 enum class TestState {
     InProgress,
@@ -91,6 +95,7 @@ void setup() {
         fail_test(F("SD initialization failed"));
     }
     // checks the whole thrust profile before starting test
+    // const double upstreamPressurePsi = 500;
     const double upstreamPressurePsi = pt1.get_pressure(false);
     for (size_t index = 0; index < kThrustProfileLength; ++index) {
         if (!Feedforward::set_thrust_to_mdot(
@@ -135,9 +140,10 @@ void loop() {
             }
             if (testState != TestState::InProgress) break;
 
-            // calculate target mdot and dp with target thrust and upstream pressure
+            // Interpolate target mdot and valve outlet pressure; check upstream pressure.
             commandedThrustLbf = kThrustProfileLbf[thrustSetpointIndex];
             const double upstreamPressurePsi = pt1.get_pressure(false);
+            // const double upstreamPressurePsi = 500;
             const Feedforward::ThrustTargets targets = Feedforward::set_thrust_to_mdot(
                 commandedThrustLbf, upstreamPressurePsi);
             if (!targets.valid) {
@@ -145,9 +151,12 @@ void loop() {
                 break;
             }
 
-            // get feedforward output
+            // Match the LOX opening using water, keeping the same pressure targets.
+            const double testMassFlowLbmPerSec = Feedforward::equivalent_mass_flow(
+                targets.massFlowLbmPerSec, Engine::kLoxDensityLbmPerFt3,
+                kFluidDensityLbmPerFt3);
             const double angleDeg = Feedforward::calculate_feedforward(
-                targets.massFlowLbmPerSec, upstreamPressurePsi,
+                testMassFlowLbmPerSec, upstreamPressurePsi,
                 targets.downstreamPressurePsi, kFluidDensityLbmPerFt3);
             if (!isfinite(angleDeg) || angleDeg < Config::kClosedTheta ||
                 angleDeg > Config::kOpenTheta) {

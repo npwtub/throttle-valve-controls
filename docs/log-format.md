@@ -49,7 +49,10 @@ inspect the state and commanded valve angle to see the resulting close command.
 State IDs: 0 waiting, 1 closed, 2 opening, 3 open, 4 closing, 5 motor froze,
 6 initial_opening, 7 initial_open, 8 soaking, 9 cycle_opening, 10 cycle_open,
 11 cycle_closing, 12 cycle_closed, 13 done, 14 timeout, 15 feedforward,
-16 failed, 255 unknown. State IDs retain their version-2 meanings.
+16 failed, 17 moving_up, 18 moving_down, 19 at_setpoint_up,
+20 at_setpoint_down, 21 finished, 22 travel_timeout, 255 unknown.
+IDs 0-16 retain their existing meanings; IDs 17-22 preserve the CdA
+characterization sweep and terminal state names.
 
 Python layout: `struct.Struct("<4BQ9f3If")`. The decoder exports commanded
 thrust as `commanded_thrust_lbf`, followed by two derived CSV columns:

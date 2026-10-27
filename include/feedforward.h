@@ -23,10 +23,21 @@ struct ThrustTargets {
     bool valid;
 };
 
+// Match the reference valve opening at the same pressure drop with another liquid.
+// Both densities must use the same units; the result keeps the input flow units.
+inline double equivalent_mass_flow(double referenceMassFlow,
+    double referenceDensity, double testDensity) {
+    if (!isfinite(referenceMassFlow) || referenceMassFlow < 0.0 ||
+        !isfinite(referenceDensity) || referenceDensity <= 0.0 ||
+        !isfinite(testDensity) || testDensity <= 0.0) return NAN;
+    return referenceMassFlow * sqrt(testDensity / referenceDensity);
+}
+
 /**
- * @brief Converts a thrust setpoint and real upstream pressure to goal mdot,
- * and downstream pressure by interpolating from existing values taken from
- * fluid sims. This is currently intended only for one valve
+ * @brief Interpolates goal mdot and valve outlet pressure from the thrust tables.
+ * Thrust requests above the table maximum are clamped to that maximum.
+ * Upstream pressure is checked for a finite reading; low pressure is allowed.
+ * This is currently intended only for one valve.
  * @return ThrustTargets which contains mass flow rate and downstream pressure
  */
 inline ThrustTargets set_thrust_to_mdot(
@@ -35,12 +46,14 @@ inline ThrustTargets set_thrust_to_mdot(
     // checks if set thrust and upstream pressure are valid
     const ThrustTargets invalid = {NAN, NAN, false};
     if (!isfinite(setThrustLbf) || setThrustLbf < 0.0) return invalid;
-    if (!isfinite(upstreamReferencePsi) || upstreamReferencePsi <= 0.0) return invalid;
+    if (!isfinite(upstreamReferencePsi)) return invalid;
     if (setThrustLbf == 0.0) return {0.0, 0.0, true}; // valid setpoint, 0 mdot and pressure
 
-    //doesn't allow thrust setpoint outside of range in thrust map
-    if (setThrustLbf < Engine::kThrustLbf[0] ||
-        setThrustLbf > Engine::kThrustLbf[Engine::kPointCount - 1]) return invalid;
+    // Clamp above-range thrust; nonzero requests below the table remain invalid.
+    if (setThrustLbf > Engine::kThrustLbf[Engine::kPointCount - 1]) {
+        setThrustLbf = Engine::kThrustLbf[Engine::kPointCount - 1];
+    }
+    if (setThrustLbf < Engine::kThrustLbf[0]) return invalid;
 
     size_t low;
     size_t high;
@@ -53,36 +66,41 @@ inline ThrustTargets set_thrust_to_mdot(
         }
     }
 
-    //interpolate thrust, mdot, and dp
+    // Interpolate mdot and valve outlet pressure independently of upstream pressure.
     const double fraction = high == low ? 0.0 : (setThrustLbf - Engine::kThrustLbf[low]) / (Engine::kThrustLbf[high] - Engine::kThrustLbf[low]);
     const double massFlowKgPerSec = Engine::kLoxMdotKg[low] + fraction *
                                                                           (Engine::kLoxMdotKg[high] - Engine::kLoxMdotKg[low]);
-    const double valveDpPsi = Engine::kValveDpPsi[low] + fraction *
-                                                              (Engine::kValveDpPsi[high] - Engine::kValveDpPsi[low]);
+    const double downstreamPressurePsi = Engine::kDownstreamPsi[low] + fraction *
+                                        (Engine::kDownstreamPsi[high] - Engine::kDownstreamPsi[low]);
 
     const double massFlowLbmPerSec = massFlowKgPerSec * kPoundsMassPerKilogram; // kg to lb
-    const double downstreamPressurePsi = upstreamReferencePsi - valveDpPsi;
 
     //check values are valid
     if (!isfinite(massFlowLbmPerSec) || !isfinite(downstreamPressurePsi) ||
-        downstreamPressurePsi < 0.0 || valveDpPsi <= 0.0) return invalid;
+        downstreamPressurePsi < 0.0) return invalid;
 
     return {massFlowLbmPerSec, downstreamPressurePsi, true};
 }
 
 /**
- * @brief takes in lox mass flow, upstream pressure and downstream goal pressure,
+ * @brief takes in test-fluid mass flow, upstream pressure and downstream goal pressure,
  * and fluid density, outputting a goal angle in degrees.
  * @return goal valve angle, capped at the maximum tabulated opening;
+ * maximum opening when upstream pressure cannot reach the downstream target;
  * NAN for invalid inputs or required CdA below the table range
  */
 inline double calculate_feedforward(
     double goalMdotLbmPerSec, double upstreamPressurePsi,
     double goalDownstreamPressurePsi, double densityLbmPerFt3) {
     if (goalMdotLbmPerSec == 0.0) return 0.0;
+    if (!isfinite(goalMdotLbmPerSec) || goalMdotLbmPerSec < 0.0 ||
+        !isfinite(upstreamPressurePsi) || !isfinite(goalDownstreamPressurePsi) ||
+        goalDownstreamPressurePsi < 0.0 || !isfinite(densityLbmPerFt3) ||
+        densityLbmPerFt3 <= 0.0) return NAN;
 
     const double pressureDropPsi = upstreamPressurePsi - goalDownstreamPressurePsi;
-    if (pressureDropPsi <= 0.0) return NAN;
+    // An unreachable pressure target calls for the maximum available opening.
+    if (pressureDropPsi <= 0.0) return Config::kValveAngleDeg[Config::kValvePointCount - 1];
 
     const double denominator = sqrt(2.0 * pressureDropPsi *
                                     kSquareInchesPerSquareFoot * densityLbmPerFt3 * kGravityConversion);

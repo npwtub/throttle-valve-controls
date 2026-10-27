@@ -17,6 +17,8 @@ STATES = (
     "initial_opening", "initial_open", "soaking", "cycle_opening",
     "cycle_open", "cycle_closing", "cycle_closed", "done", "timeout",
     "feedforward", "failed",
+    "moving_up", "moving_down", "at_setpoint_up", "at_setpoint_down",
+    "finished", "travel_timeout",
 )
 COLUMNS = (
     "timestamp_unix_ms", "state", "time_valid", "motor_present",

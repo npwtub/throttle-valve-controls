@@ -3,7 +3,11 @@
  * - Starts when a space arrives over Serial.
  * - Holds open for two seconds, then closes for a one-hour soak.
  * - Repeats two seconds open and one second closed after the soak.
+ * - Holds open for two seconds, then closes for a one-hour soak.
+ * - Repeats two seconds open and one second closed after the soak.
  * - Uses fresh position feedback to confirm each movement.
+ * - Logs pressure and motor telemetry at 25 Hz until frozen.
+ * - Stops cycling on a travel timeout and keeps commanding closed.
  * - Logs pressure and motor telemetry at 25 Hz until frozen.
  * - Stops cycling on a travel timeout and keeps commanding closed.
  */

@@ -189,6 +189,12 @@ static inline uint8_t log_state_id(const String& name) {
     if (name == F("timeout")) return 14;
     if (name == F("feedforward")) return 15;
     if (name == F("failed")) return 16;
+    if (name == F("moving_up")) return 17;
+    if (name == F("moving_down")) return 18;
+    if (name == F("at_setpoint_up")) return 19;
+    if (name == F("at_setpoint_down")) return 20;
+    if (name == F("finished")) return 21;
+    if (name == F("travel_timeout")) return 22;
     return 255;
 }
 
@@ -309,4 +315,20 @@ static inline void report_log_status(Print& out) {
     out.print(F(" spacing_worst_us=")); out.print(controlSchedule.worstSpacingUs);
     out.print(F(" sd_error=")); out.print(sdLog.has_error() ? 1 : 0);
     out.print(F(" sd_closed=")); out.println(sdLog.is_finalized() ? 1 : 0);
+}
+
+static void printLogHeader(const MotorState* motorState, const PressureTransducer* pt1, const PressureTransducer* pt2){
+    Serial.print("timestamp_ms,");
+
+    if (pt1 != nullptr) {
+        Serial.print("pt1_psi,");
+    }
+    if (pt2 != nullptr) {
+        Serial.print("pt2_psi,");
+    }
+
+    if (motorState != nullptr) {
+        Serial.print("position_deg,motor_temp_c,output_percent,rpm,voltage,current,has_status_0,has_status_2,has_telemetry,is_fresh,last_status_0_time,last_status_2_time");
+    }
+    Serial.println("state");
 }
