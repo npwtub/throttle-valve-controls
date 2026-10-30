@@ -3,15 +3,29 @@
 #include <CanControl.h>
 
 namespace utils{
-    inline double backlashCompensation(CanControl::SparkMax& motor, double target){
-        const double position = motor.get_encoder_position();
+    inline void setMotorPositionWithBacklash(CanControl::SparkMax& motor, double targetPosition){
+        int prevDir = Config::motorDir; // Store the previous direction of movement
 
-        if(position < target){
-            return target + Config::backlash;
-        } else if(position > target){
-            return target - Config::backlash;
+        // Determine the new direction of movement
+        if(targetPosition > Config::motorPrevTargetPosition){
+            Config::motorDir = 1; // Increasing
+        } else if(targetPosition < Config::motorPrevTargetPosition){
+            Config::motorDir = -1; // Decreasing
         } else {
-            return target;
+            Config::motorDir = 0; // No movement
         }
+
+        // Apply backlash compensation based on the direction of movement
+        if(Config::motorDir == 1 && prevDir != 1){ // Increasing
+            targetPosition += Config::backlash;
+        } else if(Config::motorDir == -1 && prevDir != -1){ // Decreasing
+            targetPosition -= Config::backlash;
+        }
+
+        // Set the motor position
+        motor.set_position(targetPosition);
+
+        // Update the previous target position
+        Config::motorPrevTargetPosition = targetPosition;
     }
 }

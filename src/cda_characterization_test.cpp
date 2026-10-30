@@ -57,7 +57,6 @@ bool finalReportSent = false;
 
 bool positionReceivedDuringTravel = false;
 bool descendingSweep = false;
-bool backlashCompensated = false;
 double targetAngleDeg = kStartAngleDeg;
 double targetPositionRotations = Config::kClosedRotations;
 
@@ -82,10 +81,6 @@ void enter_state(State next, unsigned long now) {
 void begin_travel(State next, double valveAngleDeg, unsigned long now) {
     targetAngleDeg = valveAngleDeg;
     targetPositionRotations = (valveAngleDeg / 360.0) * Config::kGearRatio;
-    if(descendingSweep && !backlashCompensated){
-        utils::backlashCompensation(motor, targetPositionRotations);
-        backlashCompensated = true;
-    }
     positionReceivedDuringTravel = false;
     enter_state(next, now);
 }
@@ -269,7 +264,8 @@ void loop() {
     // Send once per cycle after calculating the target. Waiting sends no position
     // command; finished and timed-out tests keep commanding closed.
     if (state != State::Waiting) {
-        motor.set_position(targetPositionRotations, 0, 0, 0);
+        // motor.set_position(targetPositionRotations, 0, 0, 0);
+        utils::setMotorPositionWithBacklash(motor, targetPositionRotations);
     }
     CanControl::send_heartbeat(mcp2515, CanControl::default_heartbeat());
 
