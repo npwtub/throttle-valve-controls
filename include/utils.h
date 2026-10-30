@@ -16,9 +16,9 @@ namespace utils{
         }
 
         // Apply backlash compensation based on the direction of movement
-        if(Config::motorDir == 1 && prevDir != 1){ // Increasing
+        if(Config::motorDir == 1 && prevDir == -1){ // Increasing
             targetPosition += Config::backlash;
-        } else if(Config::motorDir == -1 && prevDir != -1){ // Decreasing
+        } else if(Config::motorDir == -1 && prevDir == 1){ // Decreasing
             targetPosition -= Config::backlash;
         }
 
