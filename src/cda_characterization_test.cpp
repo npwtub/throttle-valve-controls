@@ -16,6 +16,7 @@
 #include "log.h"
 #include "motor_state.h"
 #include "pressure_transducer.h"
+#include "utils.h"
 
 namespace {
 /**
@@ -56,6 +57,7 @@ bool finalReportSent = false;
 
 bool positionReceivedDuringTravel = false;
 bool descendingSweep = false;
+bool backlashCompensated = false;
 double targetAngleDeg = kStartAngleDeg;
 double targetPositionRotations = Config::kClosedRotations;
 
@@ -80,6 +82,10 @@ void enter_state(State next, unsigned long now) {
 void begin_travel(State next, double valveAngleDeg, unsigned long now) {
     targetAngleDeg = valveAngleDeg;
     targetPositionRotations = (valveAngleDeg / 360.0) * Config::kGearRatio;
+    if(descendingSweep && !backlashCompensated){
+        utils::backlashCompensation(motor, targetPositionRotations);
+        backlashCompensated = true;
+    }
     positionReceivedDuringTravel = false;
     enter_state(next, now);
 }
