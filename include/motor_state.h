@@ -152,11 +152,6 @@ public:
         return previousTargetPosition_;
     }
 
-    double get_total_backlash_compensation() const
-    {
-        return totalBacklashCompensation_;
-    }
-
     // Motor temperature in degrees Celsius
     float get_temperature() const
     {
@@ -189,12 +184,6 @@ public:
     void set_previous_target_position(double position)
     {
         previousTargetPosition_ = position;
-    }
-
-    // Set the total backlash compensation
-    void set_total_backlash_compensation(double compensation)
-    {
-        totalBacklashCompensation_ = compensation;
     }
 
     // --------------------------------------------------
@@ -272,7 +261,6 @@ private:
 
     int targetDirection_ = 0;
     double previousTargetPosition_ = 0.0;
-    double totalBacklashCompensation_ = 0.0;
 
     // Receipt tracking
     bool receivedStatus0_ = false;

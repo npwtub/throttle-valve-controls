@@ -16,10 +16,8 @@ namespace utils{
 
         // Apply backlash compensation based on the direction of movement
         if(motorState.get_target_direction() == 1 && prevDir == -1){ // Increasing
-            motorState.set_total_backlash_compensation(motorState.get_total_backlash_compensation() + Config::kBacklashCompensation);
             targetPosition += Config::kBacklashCompensation; // Adjust the target position for backlash
         } else if(motorState.get_target_direction() == -1 && prevDir == 1){ // Decreasing
-            motorState.set_total_backlash_compensation(motorState.get_total_backlash_compensation() - Config::kBacklashCompensation);
             targetPosition -= Config::kBacklashCompensation; // Adjust the target position for backlash
         }
 
