@@ -61,9 +61,7 @@ constexpr double kPtMinVoltage = 0.0135;
 constexpr double kPtMaxVoltage = 5;
 
 // backlash constants
-constexpr double backlash = 0.5; // motor rotations
-int motorDir = 0; // 1 for increasing, -1 for decreasing, 0 for no movement
-double motorPrevTargetPosition = 0.0; 
+constexpr double kBacklashCompensation = 0.5; // motor rotations
 
 }  // namespace Config
 

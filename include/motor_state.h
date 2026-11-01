@@ -140,6 +140,22 @@ public:
     {
         return position_;
     }
+    
+    // Motor direction of movement (-1 for decreasing, +1 for increasing, 0 for no movement)
+    int get_target_direction() const
+    {
+        return targetDirection_;
+    }
+
+    double get_previous_target_position() const
+    {
+        return previousTargetPosition_;
+    }
+
+    double get_total_backlash_compensation() const
+    {
+        return totalBacklashCompensation_;
+    }
 
     // Motor temperature in degrees Celsius
     float get_temperature() const
@@ -157,6 +173,28 @@ public:
     uint16_t get_current_raw() const
     {
         return currentRaw_;
+    }
+
+    // --------------------------------------------------
+    // SETTERS
+    // --------------------------------------------------
+
+    // Set the target direction of movement
+    void set_target_direction(int direction)
+    {
+        targetDirection_ = direction;
+    }
+
+    // Set the previous target position
+    void set_previous_target_position(double position)
+    {
+        previousTargetPosition_ = position;
+    }
+
+    // Set the total backlash compensation
+    void set_total_backlash_compensation(double compensation)
+    {
+        totalBacklashCompensation_ = compensation;
     }
 
     // --------------------------------------------------
@@ -231,6 +269,10 @@ private:
     // Status 2 cached values
     float rpm_ = 0.0f;
     float position_ = 0.0f;
+
+    int targetDirection_ = 0;
+    double previousTargetPosition_ = 0.0;
+    double totalBacklashCompensation_ = 0.0;
 
     // Receipt tracking
     bool receivedStatus0_ = false;
