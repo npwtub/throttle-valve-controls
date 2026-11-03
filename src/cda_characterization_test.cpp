@@ -27,10 +27,10 @@ namespace {
  * logged test data to build the cda vs angle relationship for this valve.
  */
 // constexpr double kStartAngleDeg = Config::kClosedTheta;
-constexpr double kStartAngleDeg = 5;
+constexpr double kStartAngleDeg = 0;
 constexpr double kEndAngleDeg = Config::kOpenTheta;
 constexpr double kAngleIncrementDeg = 10.0;
-constexpr unsigned long kDwellTimeMs = 3000;
+constexpr unsigned long kDwellTimeMs = 1500;
 
 // this is how long a commanded move can take before the state machine gives up
 // and commands the valve closed.
@@ -238,7 +238,9 @@ void loop() {
             // spark max can settle a little short of the exact requested angle, so
             // a tighter cda-only tolerance can call a healthy settled move a timeout.
             if (positionReceivedDuringTravel &&
-                motorState.at_position(targetPositionRotations,
+                motorState.at_position(targetPositionRotations + utils::backlashCompensatedTarget(
+                            motorState, targetPositionRotations,
+                            state == State::AtSetpoint),
                                       now,
                                       Config::kGoalPositionTolerance,
                                       Config::kTelemetryTimeoutMs)) {
@@ -264,8 +266,9 @@ void loop() {
     // Send once per cycle after calculating the target. Waiting sends no position
     // command; finished and timed-out tests keep commanding closed.
     if (state != State::Waiting) {
-        // motor.set_position(targetPositionRotations, 0, 0, 0);
-        utils::setMotorPositionWithBacklash(motor, targetPositionRotations);
+        motor.set_position(targetPositionRotations + utils::backlashCompensatedTarget(
+                            motorState, targetPositionRotations,
+                            state == State::AtSetpoint), 0, 0, 0);
     }
     CanControl::send_heartbeat(mcp2515, CanControl::default_heartbeat());
 
