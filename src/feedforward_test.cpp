@@ -96,8 +96,8 @@ void setup() {
         fail_test(F("SD initialization failed"));
     }
     // checks the whole thrust profile before starting test
-    const double upstreamPressurePsi = 500;
-    // const double upstreamPressurePsi = pt1.get_pressure(false);
+    // const double upstreamPressurePsi = 500;
+    const double upstreamPressurePsi = pt1.get_pressure(false);
     for (size_t index = 0; index < kThrustProfileLength; ++index) {
         if (!Feedforward::set_thrust_to_mdot(
                 kThrustProfileLbf[index], upstreamPressurePsi).valid) {
@@ -143,8 +143,8 @@ void loop() {
 
             // Interpolate target mdot and valve outlet pressure; check upstream pressure.
             commandedThrustLbf = kThrustProfileLbf[thrustSetpointIndex];
-            // const double upstreamPressurePsi = pt1.get_pressure(false);
-            const double upstreamPressurePsi = 500;
+            const double upstreamPressurePsi = pt1.get_pressure(false);
+            // const double upstreamPressurePsi = 500;
             const Feedforward::ThrustTargets targets = Feedforward::set_thrust_to_mdot(
                 commandedThrustLbf, upstreamPressurePsi);
             if (!targets.valid) {
