@@ -12,6 +12,8 @@ import sys
 RECORD = struct.Struct("<4BQ9f3If")
 FLOAT32 = struct.Struct("<f")
 DEFAULT_MODEL_DIR = Path(__file__).resolve().parents[1] / "include"
+GEAR_RATIO = 32.0017
+BACKLASH_MOTOR_ROTATIONS = 0.6
 STATES = (
     "waiting", "closed", "opening", "open", "closing", "motor froze",
     "initial_opening", "initial_open", "soaking", "cycle_opening",
@@ -27,6 +29,9 @@ COLUMNS = (
     "has_status_0", "has_status_2", "has_telemetry", "is_fresh",
     "last_status_0_ms", "last_status_2_ms", "dropped_records", "commanded_thrust_lbf",
     "commanded_mdot_lbm_per_sec", "commanded_dp_psi",
+    "backlash_compensated",
+    "commanded_motor_angle_deg", "actual_motor_angle_deg",
+    "commanded_valve_angle_deg", "actual_valve_angle_deg",
 )
 
 
@@ -113,7 +118,7 @@ def decode_record(data, model_dir=DEFAULT_MODEL_DIR):
     version, state, presence, flags, timestamp, *fields = RECORD.unpack(data)
     if version not in (2, 3):
         raise ValueError(f"Unsupported format version {version}; expected 2 or 3")
-    if presence & ~15 or flags & ~15:
+    if presence & ~31 or flags & ~15:
         raise ValueError("Invalid flags")
     if version == 2 and data[60:64] != b"\0" * 4:
         raise ValueError("Invalid version-2 reserved bytes")
@@ -127,11 +132,19 @@ def decode_record(data, model_dir=DEFAULT_MODEL_DIR):
                state=STATES[state] if state < len(STATES) else f"unknown_{state}",
                time_valid=int(valid_time), pt1_present=int(bool(presence & 1)),
                pt2_present=int(bool(presence & 2)), motor_present=int(bool(presence & 4)),
+               backlash_compensated=int(bool(presence & 16)),
                commanded_position_deg=fields[8], dropped_records=fields[11],
                commanded_thrust_lbf=fields[12] if version == 3 else "")
     if version == 3:
         row["commanded_mdot_lbm_per_sec"], row["commanded_dp_psi"] = commanded_targets(
             fields[12], model_dir)
+    commanded_valve_angle = fields[8]
+    if math.isfinite(commanded_valve_angle):
+        row["commanded_valve_angle_deg"] = commanded_valve_angle
+        row["commanded_motor_angle_deg"] = (
+            commanded_valve_angle * GEAR_RATIO
+            + (BACKLASH_MOTOR_ROTATIONS * 360.0
+               if row["backlash_compensated"] else 0.0))
     if valid_time:
         row["timestamp_unix_ms"] = timestamp
     if presence & 1:
@@ -139,6 +152,8 @@ def decode_record(data, model_dir=DEFAULT_MODEL_DIR):
     if presence & 2:
         row["pt2_psi"] = fields[1]
     if presence & 4:
+        row["actual_motor_angle_deg"] = fields[2] * GEAR_RATIO
+        row["actual_valve_angle_deg"] = fields[2]
         for column, value in zip(("position_deg", "motor_temp_c", "output_percent",
                                   "rpm", "voltage_v", "current_a"), fields[2:8]):
             row[column] = value

@@ -46,7 +46,8 @@ static inline void make_log_record(
     float commandedMotorRotations,
     uint32_t droppedRecords,
     bool timeValid = false,
-    float commandedThrustLbf = 0.0f
+    float commandedThrustLbf = 0.0f,
+    bool backlashCompensated = false
 ) {
     memset(out, 0, sizeof(out));
 
@@ -57,7 +58,8 @@ static inline void make_log_record(
     out[2] = (pt1 ? 1 : 0)
            | (pt2 ? 2 : 0)
            | (motorState ? 4 : 0)
-           | (timeValid ? 8 : 0);
+           | (timeValid ? 8 : 0)
+           | (backlashCompensated ? 16 : 0);
 
     put_u64(out + 4, unixTimeMs);
 
@@ -262,7 +264,8 @@ static inline bool log_row(const MotorState* motorState,
                    const PressureTransducer* pt2,
                    unsigned long nowMs, const String& stateName,
                    float commandedMotorRotations, bool finalRow = false,
-                   float commandedThrustLbf = 0.0f) {
+                   float commandedThrustLbf = 0.0f,
+                   bool backlashCompensated = false) {
     sdLog.update_clock(nowMs);
     if (!sdLog.is_active()) {
         if (finalRow && sdLog.is_open()) sdLog.close();
@@ -278,7 +281,7 @@ static inline bool log_row(const MotorState* motorState,
     LogRecord record;
     make_log_record(record.bytes, motorState, pt1, pt2, sdLog.unix_time(),
                   log_state_id(stateName), commandedMotorRotations, sdLog.dropped(),
-                  sdLog.has_unix_time(), commandedThrustLbf);
+                  sdLog.has_unix_time(), commandedThrustLbf, backlashCompensated);
     const bool queued = sdLog.enqueue(record);
     if (finalRow) {
         const bool closed = sdLog.close();

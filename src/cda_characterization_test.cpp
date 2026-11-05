@@ -229,6 +229,12 @@ void loop() {
         }
     }
 
+    const double arrivalBacklashOffset = state == State::Waiting
+        ? 0.0
+        : utils::backlashCompensatedTarget(
+              motorState, targetPositionRotations,
+              state == State::AtSetpoint);
+
     switch (state) {
         case State::Waiting:
             break;
@@ -238,9 +244,7 @@ void loop() {
             // spark max can settle a little short of the exact requested angle, so
             // a tighter cda-only tolerance can call a healthy settled move a timeout.
             if (positionReceivedDuringTravel &&
-                motorState.at_position(targetPositionRotations + utils::backlashCompensatedTarget(
-                            motorState, targetPositionRotations,
-                            state == State::AtSetpoint),
+                motorState.at_position(targetPositionRotations + arrivalBacklashOffset,
                                       now,
                                       Config::kGoalPositionTolerance,
                                       Config::kTelemetryTimeoutMs)) {
@@ -265,10 +269,12 @@ void loop() {
 
     // Send once per cycle after calculating the target. Waiting sends no position
     // command; finished and timed-out tests keep commanding closed.
+    bool backlashCompensatedForLog = false;
     if (state != State::Waiting) {
-        motor.set_position(targetPositionRotations + utils::backlashCompensatedTarget(
-                            motorState, targetPositionRotations,
-                            state == State::AtSetpoint), 0, 0, 0);
+        const double backlashOffset = utils::backlashCompensatedTarget(
+            motorState, targetPositionRotations, state == State::AtSetpoint);
+        backlashCompensatedForLog = backlashOffset != 0.0;
+        motor.set_position(targetPositionRotations + backlashOffset, 0, 0, 0);
     }
     CanControl::send_heartbeat(mcp2515, CanControl::default_heartbeat());
 
@@ -276,7 +282,7 @@ void loop() {
     const bool testFinished = state == State::Finished || state == State::TravelTimeout;
     log_row(&motorState, &pt1, &pt2, millis(), state_name(),
             state == State::Waiting ? NAN : targetPositionRotations,
-            testFinished && !finalReportSent);
+            testFinished && !finalReportSent, 0.0f, backlashCompensatedForLog);
     finish_control_cycle();
 
     if (testFinished && !finalReportSent) {
