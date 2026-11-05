@@ -5,7 +5,7 @@
 namespace utils{
     // Call for each position command so direction follows changes in target.
     // Add the offset only on an upward move after feedback confirms the setpoint.
-    inline double backlashCompensatedTarget(MotorState& motorState,
+    inline double backlashCompensation(MotorState& motorState,
                                              double targetPosition,
                                              bool atSetpoint){
         const bool movingUp = motorState.update_target_direction(targetPosition);

@@ -18,6 +18,7 @@
 #include "log.h"
 #include "motor_state.h"
 #include "thrust_profiles.h"
+#include "utils.h"
 
 namespace {
 // test will follow thrust profile setpoints, splitting each one equally
@@ -95,8 +96,8 @@ void setup() {
         fail_test(F("SD initialization failed"));
     }
     // checks the whole thrust profile before starting test
-    // const double upstreamPressurePsi = 500;
-    const double upstreamPressurePsi = pt1.get_pressure(false);
+    const double upstreamPressurePsi = 500;
+    // const double upstreamPressurePsi = pt1.get_pressure(false);
     for (size_t index = 0; index < kThrustProfileLength; ++index) {
         if (!Feedforward::set_thrust_to_mdot(
                 kThrustProfileLbf[index], upstreamPressurePsi).valid) {
@@ -142,8 +143,8 @@ void loop() {
 
             // Interpolate target mdot and valve outlet pressure; check upstream pressure.
             commandedThrustLbf = kThrustProfileLbf[thrustSetpointIndex];
-            const double upstreamPressurePsi = pt1.get_pressure(false);
-            // const double upstreamPressurePsi = 500;
+            // const double upstreamPressurePsi = pt1.get_pressure(false);
+            const double upstreamPressurePsi = 500;
             const Feedforward::ThrustTargets targets = Feedforward::set_thrust_to_mdot(
                 commandedThrustLbf, upstreamPressurePsi);
             if (!targets.valid) {
@@ -183,13 +184,17 @@ void loop() {
 
     // Both the motor API and the logger take MOTOR ROTATIONS, not valve degrees.
     const float targetMotorRotations = outputAngleDeg * Config::kGearRatio / 360.0;
-    if (motor.set_position(targetMotorRotations) != MCP2515::ERROR_OK) ++controlErrors;
+    const double backlashOffset = utils::backlashCompensation(
+        motorState, targetMotorRotations, false);
+    const bool backlashCompensatedForLog = backlashOffset != 0.0;
+    if (motor.set_position(targetMotorRotations + backlashOffset) != MCP2515::ERROR_OK) ++controlErrors;
     if (CanControl::send_heartbeat(mcp2515, CanControl::default_heartbeat()) !=
             MCP2515::ERROR_OK) ++heartbeatErrors;
 
     const bool testFinished = (testState == TestState::Done) || (testState == TestState::Failed);
     log_row(&motorState, &pt1, &pt2, millis(), state_name(), targetMotorRotations,
-            testFinished && !finalReportSent, commandedThrustLbf);
+            testFinished && !finalReportSent, commandedThrustLbf,
+            backlashCompensatedForLog);
     finish_control_cycle();
 
     if (testFinished && !finalReportSent) {

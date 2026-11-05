@@ -30,7 +30,7 @@ namespace {
 constexpr double kStartAngleDeg = 0;
 constexpr double kEndAngleDeg = Config::kOpenTheta;
 constexpr double kAngleIncrementDeg = 10.0;
-constexpr unsigned long kDwellTimeMs = 1500;
+constexpr unsigned long kDwellTimeMs = 3000;
 
 // this is how long a commanded move can take before the state machine gives up
 // and commands the valve closed.
@@ -231,7 +231,7 @@ void loop() {
 
     const double arrivalBacklashOffset = state == State::Waiting
         ? 0.0
-        : utils::backlashCompensatedTarget(
+        : utils::backlashCompensation(
               motorState, targetPositionRotations,
               state == State::AtSetpoint);
 
@@ -271,7 +271,7 @@ void loop() {
     // command; finished and timed-out tests keep commanding closed.
     bool backlashCompensatedForLog = false;
     if (state != State::Waiting) {
-        const double backlashOffset = utils::backlashCompensatedTarget(
+        const double backlashOffset = utils::backlashCompensation(
             motorState, targetPositionRotations, state == State::AtSetpoint);
         backlashCompensatedForLog = backlashOffset != 0.0;
         motor.set_position(targetPositionRotations + backlashOffset, 0, 0, 0);
