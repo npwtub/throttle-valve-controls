@@ -18,14 +18,15 @@
 #include "log.h"
 #include "motor_state.h"
 #include "thrust_profiles.h"
+#include "utils.h"
 
 namespace {
 // test will follow thrust profile setpoints, splitting each one equally
 // along to total length of the test
-constexpr unsigned long kTestLengthMs = 15500;
-constexpr auto& kThrustProfileLbf = ThrustProfile::kRampUpThrust;
-//constexpr unsigned long kTestLengthMs = 29700;
-//constexpr auto& kThrustProfileLbf = ThrustProfile::kFlightProfile;
+// constexpr unsigned long kTestLengthMs = 15500;
+// constexpr auto& kThrustProfileLbf = ThrustProfile::kRampUpThrust;
+constexpr unsigned long kTestLengthMs = 29700;
+constexpr auto& kThrustProfileLbf = ThrustProfile::kFlightProfile;
 constexpr size_t kThrustProfileLength =
     sizeof(kThrustProfileLbf) / sizeof(kThrustProfileLbf[0]);
 constexpr double kSetpointDurationMs = kTestLengthMs / kThrustProfileLength;
@@ -183,13 +184,16 @@ void loop() {
 
     // Both the motor API and the logger take MOTOR ROTATIONS, not valve degrees.
     const float targetMotorRotations = outputAngleDeg * Config::kGearRatio / 360.0;
-    if (motor.set_position(targetMotorRotations) != MCP2515::ERROR_OK) ++controlErrors;
+    const double backlashOffset = utils::backlashCompensation(motorState, targetMotorRotations, false);
+    // const double backlashOffset = 0.0;
+    if (motor.set_position(targetMotorRotations + backlashOffset) != MCP2515::ERROR_OK) ++controlErrors;
     if (CanControl::send_heartbeat(mcp2515, CanControl::default_heartbeat()) !=
             MCP2515::ERROR_OK) ++heartbeatErrors;
 
     const bool testFinished = (testState == TestState::Done) || (testState == TestState::Failed);
     log_row(&motorState, &pt1, &pt2, millis(), state_name(), targetMotorRotations,
-            testFinished && !finalReportSent, commandedThrustLbf);
+            testFinished && !finalReportSent, 
+            utils::backlashCompensation(motorState, targetMotorRotations, false) != 0.0, commandedThrustLbf);
     finish_control_cycle();
 
     if (testFinished && !finalReportSent) {

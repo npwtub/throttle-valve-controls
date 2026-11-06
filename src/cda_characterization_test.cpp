@@ -16,6 +16,7 @@
 #include "log.h"
 #include "motor_state.h"
 #include "pressure_transducer.h"
+#include "utils.h"
 
 namespace {
 /**
@@ -26,7 +27,7 @@ namespace {
  * logged test data to build the cda vs angle relationship for this valve.
  */
 // constexpr double kStartAngleDeg = Config::kClosedTheta;
-constexpr double kStartAngleDeg = 5;
+constexpr double kStartAngleDeg = 0;
 constexpr double kEndAngleDeg = Config::kOpenTheta;
 constexpr double kAngleIncrementDeg = 10.0;
 constexpr unsigned long kDwellTimeMs = 3000;
@@ -228,6 +229,12 @@ void loop() {
         }
     }
 
+    const double arrivalBacklashOffset = state == State::Waiting
+        ? 0.0
+        : utils::backlashCompensation(
+              motorState, targetPositionRotations,
+              state == State::AtSetpoint);
+
     switch (state) {
         case State::Waiting:
             break;
@@ -237,7 +244,7 @@ void loop() {
             // spark max can settle a little short of the exact requested angle, so
             // a tighter cda-only tolerance can call a healthy settled move a timeout.
             if (positionReceivedDuringTravel &&
-                motorState.at_position(targetPositionRotations,
+                motorState.at_position(targetPositionRotations + arrivalBacklashOffset,
                                       now,
                                       Config::kGoalPositionTolerance,
                                       Config::kTelemetryTimeoutMs)) {
@@ -263,7 +270,9 @@ void loop() {
     // Send once per cycle after calculating the target. Waiting sends no position
     // command; finished and timed-out tests keep commanding closed.
     if (state != State::Waiting) {
-        motor.set_position(targetPositionRotations, 0, 0, 0);
+        const double backlashOffset = utils::backlashCompensation(
+            motorState, targetPositionRotations, state == State::AtSetpoint);
+        motor.set_position(targetPositionRotations + backlashOffset, 0, 0, 0);
     }
     CanControl::send_heartbeat(mcp2515, CanControl::default_heartbeat());
 
@@ -271,7 +280,8 @@ void loop() {
     const bool testFinished = state == State::Finished || state == State::TravelTimeout;
     log_row(&motorState, &pt1, &pt2, millis(), state_name(),
             state == State::Waiting ? NAN : targetPositionRotations,
-            testFinished && !finalReportSent);
+            testFinished && !finalReportSent, 0.0f, utils::backlashCompensation(
+            motorState, targetPositionRotations, state == State::AtSetpoint) != 0.0);
     finish_control_cycle();
 
     if (testFinished && !finalReportSent) {

@@ -140,7 +140,13 @@ public:
     {
         return position_;
     }
-
+    
+    // Motor direction of movement (-1 for decreasing, +1 for increasing, 0 for no movement)
+    int get_target_direction() const
+    {
+        return targetDirection_;
+    }
+    
     // Motor temperature in degrees Celsius
     float get_temperature() const
     {
@@ -158,6 +164,32 @@ public:
     {
         return currentRaw_;
     }
+
+    // --------------------------------------------------
+    // SETTERS
+    // --------------------------------------------------
+
+    // Set the target direction of movement
+    void set_target_direction(int direction)
+    {
+        targetDirection_ = direction;
+    }
+
+    bool update_target_direction(double targetPosition)
+    {
+        if (!hasTargetPosition_) {
+            targetDirection_ = targetPosition > position_ ? 1 :
+                               targetPosition < position_ ? -1 : 0;
+            hasTargetPosition_ = true;
+        } else if (targetPosition > previousTargetPosition_) {
+            targetDirection_ = 1;
+        } else if (targetPosition < previousTargetPosition_) {
+            targetDirection_ = -1;
+        }
+        previousTargetPosition_ = targetPosition;
+        return targetDirection_ == 1;
+    }
+
 
     // --------------------------------------------------
     // TELEMETRY VALIDITY
@@ -231,6 +263,10 @@ private:
     // Status 2 cached values
     float rpm_ = 0.0f;
     float position_ = 0.0f;
+
+    int targetDirection_ = 0;
+    double previousTargetPosition_ = 0.0;
+    bool hasTargetPosition_ = false;
 
     // Receipt tracking
     bool receivedStatus0_ = false;
