@@ -30,8 +30,8 @@ COLUMNS = (
     "last_status_0_ms", "last_status_2_ms", "dropped_records", "commanded_thrust_lbf",
     "commanded_mdot_lbm_per_sec", "commanded_dp_psi",
     "backlash_compensated",
-    "commanded_motor_angle_deg", "actual_motor_angle_deg",
-    "commanded_valve_angle_deg", "actual_valve_angle_deg",
+    "commanded_motor_angle", "actual_motor_angle",
+    "commanded_valve_angle", "actual_valve_angle",
 )
 
 
@@ -140,10 +140,10 @@ def decode_record(data, model_dir=DEFAULT_MODEL_DIR):
             fields[12], model_dir)
     commanded_valve_angle = fields[8]
     if math.isfinite(commanded_valve_angle):
-        row["commanded_valve_angle_deg"] = commanded_valve_angle
-        row["commanded_motor_angle_deg"] = (
-            commanded_valve_angle * GEAR_RATIO
-            + (BACKLASH_MOTOR_ROTATIONS * 360.0
+        row["commanded_valve_angle"] = commanded_valve_angle
+        row["commanded_motor_angle"] = (
+            commanded_valve_angle * GEAR_RATIO / 360.0
+            + (BACKLASH_MOTOR_ROTATIONS
                if row["backlash_compensated"] else 0.0))
     if valid_time:
         row["timestamp_unix_ms"] = timestamp
@@ -152,8 +152,12 @@ def decode_record(data, model_dir=DEFAULT_MODEL_DIR):
     if presence & 2:
         row["pt2_psi"] = fields[1]
     if presence & 4:
-        row["actual_motor_angle_deg"] = fields[2] * GEAR_RATIO
-        row["actual_valve_angle_deg"] = fields[2]
+        actual_motor_angle = fields[2]
+        backlash_valve_angle = (
+            BACKLASH_MOTOR_ROTATIONS * 360.0 / GEAR_RATIO
+            if row["backlash_compensated"] else 0.0)
+        row["actual_motor_angle"] = actual_motor_angle
+        row["actual_valve_angle"] = actual_motor_angle - backlash_valve_angle
         for column, value in zip(("position_deg", "motor_temp_c", "output_percent",
                                   "rpm", "voltage_v", "current_a"), fields[2:8]):
             row[column] = value
