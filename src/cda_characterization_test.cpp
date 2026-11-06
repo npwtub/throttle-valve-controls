@@ -269,11 +269,9 @@ void loop() {
 
     // Send once per cycle after calculating the target. Waiting sends no position
     // command; finished and timed-out tests keep commanding closed.
-    bool backlashCompensatedForLog = false;
     if (state != State::Waiting) {
         const double backlashOffset = utils::backlashCompensation(
             motorState, targetPositionRotations, state == State::AtSetpoint);
-        backlashCompensatedForLog = backlashOffset != 0.0;
         motor.set_position(targetPositionRotations + backlashOffset, 0, 0, 0);
     }
     CanControl::send_heartbeat(mcp2515, CanControl::default_heartbeat());
@@ -282,7 +280,8 @@ void loop() {
     const bool testFinished = state == State::Finished || state == State::TravelTimeout;
     log_row(&motorState, &pt1, &pt2, millis(), state_name(),
             state == State::Waiting ? NAN : targetPositionRotations,
-            testFinished && !finalReportSent, 0.0f, backlashCompensatedForLog);
+            testFinished && !finalReportSent, 0.0f, utils::backlashCompensation(
+            motorState, targetPositionRotations, state == State::AtSetpoint) != 0.0);
     finish_control_cycle();
 
     if (testFinished && !finalReportSent) {

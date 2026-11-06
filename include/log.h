@@ -263,9 +263,8 @@ static inline bool log_row(const MotorState* motorState,
                    const PressureTransducer* pt1,
                    const PressureTransducer* pt2,
                    unsigned long nowMs, const String& stateName,
-                   float commandedMotorRotations, bool finalRow = false,
-                   float commandedThrustLbf = 0.0f,
-                   bool backlashCompensated = false) {
+                   float commandedMotorRotations, bool finalRow = false, bool backlashCompensated = false,
+                   float commandedThrustLbf = 0.0f) {
     sdLog.update_clock(nowMs);
     if (!sdLog.is_active()) {
         if (finalRow && sdLog.is_open()) sdLog.close();

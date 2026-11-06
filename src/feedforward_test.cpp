@@ -186,15 +186,14 @@ void loop() {
     const float targetMotorRotations = outputAngleDeg * Config::kGearRatio / 360.0;
     const double backlashOffset = utils::backlashCompensation(motorState, targetMotorRotations, false);
     // const double backlashOffset = 0.0;
-    const bool backlashCompensatedForLog = backlashOffset != 0.0;
     if (motor.set_position(targetMotorRotations + backlashOffset) != MCP2515::ERROR_OK) ++controlErrors;
     if (CanControl::send_heartbeat(mcp2515, CanControl::default_heartbeat()) !=
             MCP2515::ERROR_OK) ++heartbeatErrors;
 
     const bool testFinished = (testState == TestState::Done) || (testState == TestState::Failed);
     log_row(&motorState, &pt1, &pt2, millis(), state_name(), targetMotorRotations,
-            testFinished && !finalReportSent, commandedThrustLbf,
-            backlashCompensatedForLog);
+            testFinished && !finalReportSent, 
+            utils::backlashCompensation(motorState, targetMotorRotations, false) != 0.0, commandedThrustLbf);
     finish_control_cycle();
 
     if (testFinished && !finalReportSent) {
