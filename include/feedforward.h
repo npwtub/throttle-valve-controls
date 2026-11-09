@@ -14,6 +14,7 @@ constexpr double kSquareInchesPerSquareFoot = 144.0;
 constexpr double kCvPerCdaIn2 = 37.97;
 constexpr double kPoundsMassPerKilogram = 2.20462262185;
 
+
 // to correct for rounding errors
 constexpr double kEndpointTolerance = 8.0 * DBL_EPSILON;
 
@@ -82,6 +83,30 @@ inline ThrustTargets set_thrust_to_mdot(
     return {massFlowLbmPerSec, downstreamPressurePsi, true};
 }
 
+inline double linear_interpolation(double cda, size_t index){
+    const double fraction = (cda - Config::kValveCdA[index - 1]) /
+                            (Config::kValveCdA[index] - Config::kValveCdA[index - 1]);
+    return Config::kValveAngleDeg[index - 1] + fraction *
+                                                   (Config::kValveAngleDeg[index] - Config::kValveAngleDeg[index - 1]);
+}
+
+inline double quadratic_interpolation(double cda, size_t index){
+    const double x0 = Config::kValveCdA[index - 1];
+    const double x1 = Config::kValveCdA[index];
+    const double x2 = Config::kValveCdA[index + 1];
+
+    const double y0 = Config::kValveAngleDeg[index - 1];
+    const double y1 = Config::kValveAngleDeg[index];
+    const double y2 = Config::kValveAngleDeg[index + 1];
+
+    const double a = (y2 - (x2 * (y1 - y0) + x1 * y0 - x0 * y1) / (x1 - x0)) / (x2 * (x2 - x1) - x0 * (x2 - x1));
+    const double b = (y1 - y0) / (x1 - x0) - a * (x1 + x0);
+    const double c = y0 - a * x0 * x0 - b * x0;
+
+    return a * cda * cda + b * cda + c;
+}
+
+
 /**
  * @brief takes in test-fluid mass flow, upstream pressure and downstream goal pressure,
  * and fluid density, outputting a goal angle in degrees.
@@ -122,10 +147,8 @@ inline double calculate_feedforward(
         // skip if required required CdA greater than the next CdA element in array
         if (requiredCdAIn2 > Config::kValveCdA[index]) continue;
 
-        const double fraction = (requiredCdAIn2 - Config::kValveCdA[index - 1]) /
-                                (Config::kValveCdA[index] - Config::kValveCdA[index - 1]);
-        return Config::kValveAngleDeg[index - 1] + fraction *
-                                                       (Config::kValveAngleDeg[index] - Config::kValveAngleDeg[index - 1]);
+        // return linear_interpolation(requiredCdAIn2, index);
+        return quadratic_interpolation(requiredCdAIn2, index);
     }
     return NAN;
 }
