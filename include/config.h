@@ -65,6 +65,20 @@ constexpr double kBacklashCompensation = 0.6; // motor rotations
 
 }  // namespace Config
 
+namespace PID {
+// Untuned: zero gains disable PID correction of the feedforward position target.
+// Chamber pressure uses psi; positive (goal - PT2) error opens to raise pressure.
+constexpr double kKp = 0.0;  // Proportional correction, motor rotations / psi.
+constexpr double kKi = 0.0;  // Integral gain, motor rotations / (psi * seconds).
+constexpr double kKd = 0.0;  // Damping of measured pressure rate, motor rotations * seconds / psi.
+// Provisional I contribution bounds in motor rotations, to be set during tuning.
+// These limit stored I as well as its output; zero Ki disables accumulation.
+constexpr double kMinIContribution = -1.0;
+constexpr double kMaxIContribution = 1.0;
+static_assert(kMinIContribution <= 0.0 && kMaxIContribution >= 0.0,
+              "PID I contribution limits must include zero");
+}  // namespace PID
+
 /**
  * lookup tables for engine performance. generally used to create mdot
  * and downstream pressure setpoints for feedforward model
