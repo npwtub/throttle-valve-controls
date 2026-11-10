@@ -5,7 +5,7 @@
 #include "config.h"
 #include "ring_buffer.h"
 
-constexpr uint8_t logFormatVersion = 3;
+constexpr uint8_t logFormatVersion = 4;
 constexpr size_t logRecordBytes = 64;
 
 struct LogRecord {

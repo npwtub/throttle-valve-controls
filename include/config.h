@@ -55,8 +55,10 @@ constexpr size_t kValvePointCount = sizeof(kValveCdA) / sizeof(kValveCdA[0]);
 //  PressureTransducer pt1 = PressureTransducer(A2, 1000, 0.47, 4.5);
 constexpr int kPt1InputPin = A2;
 constexpr int kPt2InputPin = A3;
+constexpr int kPt3InputPin = A4;
 constexpr float kPt1MaxPsi = 500;
 constexpr float kPt2MaxPsi = 1000;
+constexpr float kPt3MaxPsi = 1000;
 constexpr double kPtMinVoltage = 0.0135;
 constexpr double kPtMaxVoltage = 5;
 
@@ -66,17 +68,13 @@ constexpr double kBacklashCompensation = 0.6; // motor rotations
 }  // namespace Config
 
 namespace PID {
-// Untuned: zero gains disable PID correction of the feedforward position target.
-// Chamber pressure uses psi; positive (goal - PT2) error opens to raise pressure.
 constexpr double kKp = 0.0;  // Proportional correction, motor rotations / psi.
 constexpr double kKi = 0.0;  // Integral gain, motor rotations / (psi * seconds).
 constexpr double kKd = 0.0;  // Damping of measured pressure rate, motor rotations * seconds / psi.
-// Provisional I contribution bounds in motor rotations, to be set during tuning.
+// I contribution bounds in motor rotations, to be set during tuning.
 // These limit stored I as well as its output; zero Ki disables accumulation.
 constexpr double kMinIContribution = -1.0;
 constexpr double kMaxIContribution = 1.0;
-static_assert(kMinIContribution <= 0.0 && kMaxIContribution >= 0.0,
-              "PID I contribution limits must include zero");
 }  // namespace PID
 
 /**

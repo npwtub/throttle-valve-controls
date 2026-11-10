@@ -228,7 +228,7 @@ void loop() {
     // Snapshot before finalRow causes blocking shutdown work.
     const uint32_t runElapsedUs = cycleStartUs - runTiming.firstUs;
     const uint32_t runMissedSlots = controlSchedule.missedSlots - runTiming.missedBaseline;
-    log_row(&motorState, nullptr, nullptr, millis(), state_name(), (target / 32.0017) * 360, testFinished);
+    log_row(&motorState, nullptr, nullptr, nullptr, millis(), state_name(), target, testFinished);
     // Keep percentile windows bounded without formatting or sending reports.
     if (now - lastTimingWindow >= timingWindowPeriodMs) {
         lastTimingWindow = now;

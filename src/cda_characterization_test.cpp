@@ -41,6 +41,7 @@ CanControl::SparkMax motor(mcp2515, Config::kLoxMotorId);
 MotorState motorState(Config::kLoxMotorId);
 PressureTransducer pt1(Config::kPt1InputPin, Config::kPt1MaxPsi, Config::kPtMinVoltage, Config::kPtMaxVoltage);
 PressureTransducer pt2(Config::kPt2InputPin, Config::kPt2MaxPsi, Config::kPtMinVoltage, Config::kPtMaxVoltage);
+PressureTransducer pt3(Config::kPt3InputPin, Config::kPt3MaxPsi, Config::kPtMinVoltage, Config::kPtMaxVoltage);
 
 enum class State {
     Waiting,
@@ -269,8 +270,9 @@ void loop() {
 
     // Send once per cycle after calculating the target. Waiting sends no position
     // command; finished and timed-out tests keep commanding closed.
+    double backlashOffset = 0.0;
     if (state != State::Waiting) {
-        const double backlashOffset = utils::backlashCompensation(
+        backlashOffset = utils::backlashCompensation(
             motorState, targetPositionRotations, state == State::AtSetpoint);
         motor.set_position(targetPositionRotations + backlashOffset, 0, 0, 0);
     }
@@ -278,10 +280,9 @@ void loop() {
 
     // Queue one row per cycle and flush/close exactly once at completion.
     const bool testFinished = state == State::Finished || state == State::TravelTimeout;
-    log_row(&motorState, &pt1, &pt2, millis(), state_name(),
+    log_row(&motorState, &pt1, &pt2, &pt3, millis(), state_name(),
             state == State::Waiting ? NAN : targetPositionRotations,
-            testFinished && !finalReportSent, 0.0f, utils::backlashCompensation(
-            motorState, targetPositionRotations, state == State::AtSetpoint) != 0.0);
+            testFinished && !finalReportSent, backlashOffset != 0.0);
     finish_control_cycle();
 
     if (testFinished && !finalReportSent) {

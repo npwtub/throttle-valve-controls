@@ -11,7 +11,7 @@ CONFIG = {
                 "required": True,
             },
             "angle": {
-                "aliases": ["position_deg", "angle_deg", "valve_angle_deg", "valve_angle", "position", "angle"],
+                "aliases": ["measured_valve_angle_deg", "position_deg", "angle_deg", "valve_angle_deg", "valve_angle", "position", "angle"],
                 "required": True,
             },
             "state": {
@@ -35,7 +35,7 @@ CONFIG = {
                 "required": False,
             },
             "commanded_angle": {
-                "aliases": ["commanded_position_deg", "commanded_angle_deg", "target_angle_deg"],
+                "aliases": ["commanded_valve_angle_deg", "commanded_position_deg", "commanded_angle_deg", "target_angle_deg"],
                 "required": False,
             },
             "p_up": {

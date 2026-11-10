@@ -5,6 +5,7 @@
 #include <stdio.h>
 #define A2 56
 #define A3 57
+#define A4 58
 #include "feedforward.h"
 
 static bool near(double actual, double expected) {

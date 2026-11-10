@@ -9,3 +9,21 @@ in the development cycle.
 
 More information about PlatformIO Unit Testing:
 - https://docs.platformio.org/en/latest/advanced/unit-testing/index.html
+
+Desktop logging checks (no board required):
+
+    python -m unittest discover -s test -p "test_*.py" -v
+
+For C++ checks, use a Visual Studio Developer Command Prompt from the project
+root. Create .pio\log_v4_validation, then compile and run each test:
+
+    cl /nologo /EHsc /std:c++14 /Itest\fakes\logging /Iinclude test\log_record_test.cpp /Fe.pio\log_v4_validation\log_record_test.exe /Fo.pio\log_v4_validation\log_record_test.obj
+    .pio\log_v4_validation\log_record_test.exe
+    cl /nologo /EHsc /std:c++14 /Itest\fakes\logging /Iinclude test\closed_loop_logging_test.cpp /Fe.pio\log_v4_validation\closed_loop_logging_test.exe /Fo.pio\log_v4_validation\closed_loop_logging_test.obj
+    .pio\log_v4_validation\closed_loop_logging_test.exe
+    cl /nologo /EHsc /std:c++14 /Iinclude test\pid_test.cpp /Fe.pio\log_v4_validation\pid_test.exe /Fo.pio\log_v4_validation\pid_test.obj
+    .pio\log_v4_validation\pid_test.exe
+
+These check the real binary writer, pressure-sample reuse, PID snapshots,
+closed-loop PT3 feedback, clipping flags, and PID state behavior. Logging fakes
+are isolated under test\fakes\logging; they do not control physical hardware.

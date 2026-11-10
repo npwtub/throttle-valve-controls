@@ -27,6 +27,7 @@ CanControl::SparkMax motor(mcp2515, Config::kLoxMotorId);
 MotorState motorState(Config::kLoxMotorId);
 PressureTransducer pt1 = PressureTransducer(A2, 1000, 0.47, 4.5);
 PressureTransducer pt2 = PressureTransducer(A3, 1000, 0.47, 4.5);
+PressureTransducer pt3(Config::kPt3InputPin, Config::kPt3MaxPsi, Config::kPtMinVoltage, Config::kPtMaxVoltage);
 
 // Change this constant to set the closed wait after the initial actuation.
 // constexpr unsigned long soakTimeMs = 60UL * 60UL * 1000UL;
@@ -107,7 +108,7 @@ void freeze(unsigned long now) {
     targetPosition = Config::kClosedRotations;
     enter_state(State::Frozen, now);
     command_position(now);
-    log_row(&motorState, &pt1, &pt2, now, state_name(), targetPosition);
+    log_row(&motorState, &pt1, &pt2, &pt3, now, state_name(), targetPosition);
     close_sd_log();
     // Final fault record is flushed and the file is closed.
 }
@@ -172,7 +173,7 @@ void loop() {
                 }
                 enter_state(next, now);
                 // Capture the arrival, then continue at this state's log interval.
-                log_row(&motorState, &pt1, &pt2, now, state_name(), targetPosition);
+                log_row(&motorState, &pt1, &pt2, &pt3, now, state_name(), targetPosition);
             } else if (now - stateStart >= travelTimeoutMs) {
                 freeze(now);
             }
@@ -214,7 +215,7 @@ void loop() {
         lastLog += Config::kLogFrequency25Hz;
         // Skip missed samples instead of sending a burst after a delay.
         if (now - lastLog >= Config::kLogFrequency25Hz) lastLog = now;
-        log_row(&motorState, &pt1, &pt2, now, state_name(),
+        log_row(&motorState, &pt1, &pt2, &pt3, now, state_name(),
                state == State::Waiting ? NAN : targetPosition);
     }
     service_sd_log();

@@ -5,6 +5,7 @@
 #include <stdio.h>
 #define A2 56
 #define A3 57
+#define A4 58
 #include "utils.h"
 #include "thrust_profiles.h"
 

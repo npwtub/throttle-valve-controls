@@ -22,6 +22,7 @@ CanControl::SparkMax motor(mcp2515, Config::kLoxMotorId);
 MotorState motorState(Config::kLoxMotorId);
 PressureTransducer pt1 = PressureTransducer(Config::kPt1InputPin, Config::kPt1MaxPsi, Config::kPtMinVoltage, Config::kPtMaxVoltage);
 PressureTransducer pt2 = PressureTransducer(Config::kPt1InputPin, Config::kPt2MaxPsi, Config::kPtMinVoltage, Config::kPtMaxVoltage);
+PressureTransducer pt3(Config::kPt3InputPin, Config::kPt3MaxPsi, Config::kPtMinVoltage, Config::kPtMaxVoltage);
 
  // Motor communication keeps its own 50 Hz schedule, independent of logging.
 constexpr unsigned long controlIntervalMs = 20;
@@ -85,7 +86,7 @@ const __FlashStringHelper* state_name() {
 void freeze(unsigned long now) {
     state = State::Frozen;
     command_position(Config::kClosedRotations, now);
-    log_row(&motorState, &pt1, &pt2, now, state_name(), commandedPosition);
+    log_row(&motorState, &pt1, &pt2, &pt3, now, state_name(), commandedPosition);
     close_sd_log();
     Serial.print("froze after: ");
     Serial.print(now / 1000);
@@ -187,7 +188,7 @@ void loop() {
     if (state != State::Frozen && now - lastLog >= Config::kLogFrequency25Hz) {
         lastLog += Config::kLogFrequency25Hz;
         if (now - lastLog >= Config::kLogFrequency25Hz) lastLog = now;  // No bursts after delays.
-        log_row(&motorState, &pt1, &pt2, now, state_name(), commandedPosition);
+        log_row(&motorState, &pt1, &pt2, &pt3, now, state_name(), commandedPosition);
     } 
     service_sd_log();
 }

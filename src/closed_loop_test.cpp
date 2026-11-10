@@ -1,6 +1,6 @@
 /**
  * Runs the feedforward thrust-profile test with chamber-pressure feedback.
- * Thrust selects simulated chamber pressure; PT2 supplies measured pressure.
+ * Thrust selects simulated chamber pressure; PT3 supplies measured pressure.
  * PID adds a motor-position correction to the liquid model's valve angle.
  * Gains and I limits are configured in PID.
  */
@@ -36,6 +36,7 @@ CanControl::SparkMax motor(mcp2515, Config::kLoxMotorId);
 MotorState motorState(Config::kLoxMotorId);
 PressureTransducer pt1(Config::kPt1InputPin, Config::kPt1MaxPsi, Config::kPtMinVoltage, Config::kPtMaxVoltage);
 PressureTransducer pt2(Config::kPt2InputPin, Config::kPt2MaxPsi, Config::kPtMinVoltage, Config::kPtMaxVoltage);
+PressureTransducer pt3(Config::kPt3InputPin, Config::kPt3MaxPsi, Config::kPtMinVoltage, Config::kPtMaxVoltage);
 PidController chamberPressurePid(PID::kKp, PID::kKi, PID::kKd,
                                  PID::kMinIContribution, PID::kMaxIContribution);
 
@@ -82,6 +83,8 @@ void setup() {
     Serial.print(pt1.get_pressure(false));
     Serial.print(" | PT 2: ");
     Serial.print(pt2.get_pressure(false));
+    Serial.print(" | PT 3: ");
+    Serial.print(pt3.get_pressure(false));
 
     pinMode(Config::kSdCsPin, OUTPUT);
     digitalWrite(Config::kSdCsPin, HIGH);
@@ -131,6 +134,9 @@ void loop() {
     const unsigned long now = millis();
     double targetMotorRotations = Config::kClosedRotations;
     double commandedThrustLbf = 0.0;
+    float chamberPressureSamplePsi = NAN;
+    const PidController* pidForLog = nullptr;
+    LogControlData logControlData;
     if (!finalReportSent && sdLog.has_error()) fail_test(F("SD write failed"));
 
     switch (testState) {
@@ -172,19 +178,26 @@ void loop() {
             // target. Convert its valve angle to motor rotations before adding PID.
             const double feedforwardMotorRotations = angleDeg * Config::kGearRatio / 360.0;
 
-            const double measuredChamberPressurePsi = pt2.get_pressure(false);
+            chamberPressureSamplePsi = pt3.get_pressure(false);
+            logControlData.pt3PressurePsi = &chamberPressureSamplePsi;
             
             // calculate PID angle correction
-            const double correction = isfinite(measuredChamberPressurePsi) ?
-                chamberPressurePid.update(goalChamberPressurePsi, measuredChamberPressurePsi, dtSeconds) : NAN;
+            double correction = NAN;
+            if (isfinite(chamberPressureSamplePsi)) {
+                correction = chamberPressurePid.update(
+                    goalChamberPressurePsi, chamberPressureSamplePsi, dtSeconds);
+                pidForLog = &chamberPressurePid;
+            }
             if (!isfinite(correction)) {
                 fail_test(F("Invalid chamber pressure or correction"));
                 break;
             }
             
             // add feedforward and PID output, clamp output target between 0 and 90 degrees
-            targetMotorRotations = constrain(feedforwardMotorRotations + correction,
+            const double combinedTarget = feedforwardMotorRotations + correction;
+            targetMotorRotations = constrain(combinedTarget,
                 Config::kClosedRotations, Config::kOpenRotations);
+            logControlData.pidOutputClamped = targetMotorRotations != combinedTarget;
             break;
         }
         case TestState::Closing:
@@ -203,6 +216,8 @@ void loop() {
 
     if (testState != TestState::InProgress) {
         chamberPressurePid.reset();
+        pidForLog = nullptr;
+        logControlData.pidOutputClamped = false;
     }
 
     //apply backlash compensation
@@ -217,8 +232,9 @@ void loop() {
             MCP2515::ERROR_OK) ++heartbeatErrors;
 
     const bool testFinished = (testState == TestState::Done) || (testState == TestState::Failed);
-    log_row(&motorState, &pt1, &pt2, millis(), state_name(), finalMotorCommand,
-            testFinished && !finalReportSent, backlashCompensated, commandedThrustLbf);
+    log_row(&motorState, &pt1, &pt2, &pt3, millis(), state_name(), targetMotorRotations,
+            testFinished && !finalReportSent, backlashCompensated, commandedThrustLbf,
+            pidForLog, &logControlData);
     finish_control_cycle();
 
     if (testFinished && !finalReportSent) {

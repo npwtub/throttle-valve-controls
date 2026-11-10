@@ -1,7 +1,8 @@
 /**
  * Binary SD logger (blocking writes).
  * - Queues fixed-size telemetry records and writes them to an SD file.
- * - Converts motor position to valve degrees.
+ * - Stores encoder position as valve-equivalent degrees and the valve target
+ *   before backlash compensation; the applied compensation has a separate flag.
  * - Skips sensors and motor data when their pointers are null.
  * - Serial is used only for logger status and errors.
  */
@@ -10,6 +11,7 @@
 #include <Arduino.h>
 #include "motor_state.h"
 #include "pressure_transducer.h"
+#include "pid.h"
 #include "config.h"
 #include "sd_log.h"
 #include <math.h>
@@ -36,35 +38,71 @@ static inline void put_float(uint8_t* dst, float value) {
     put_u32(dst, bits);
 }
 
+// Round to whole units and saturate without integer wraparound. The lowest
+// signed byte and highest unsigned byte are reserved for nonfinite samples.
+static inline uint8_t log_signed_unit(float value, int8_t minimum, int8_t maximum) {
+    if (!isfinite(value)) return 0x80;
+    if (value <= minimum) return static_cast<uint8_t>(minimum);
+    if (value >= maximum) return static_cast<uint8_t>(maximum);
+    return static_cast<uint8_t>(static_cast<int8_t>(
+        value + (value >= 0.0f ? 0.5f : -0.5f)));
+}
+
+static inline uint8_t log_current_amps(float value) {
+    if (!isfinite(value)) return 0xff;
+    if (value <= 0.0f) return 0;
+    if (value >= 254.0f) return 254;
+    return static_cast<uint8_t>(value + 0.5f);
+}
+
+struct LogControlData {
+    // Optional exact sample already used by PID; avoids another ADC conversion.
+    const float* pt3PressurePsi = nullptr;
+    bool pidOutputClamped = false;
+};
+
+// commandedMotorRotations is the desired valve target expressed in motor
+// rotations BEFORE adding backlash. backlashCompensated describes the offset
+// applied to this cycle's motor command, not verified motion or CAN delivery.
 static inline void make_log_record(
     uint8_t (&out)[logRecordBytes],
     const MotorState* motorState,
     const PressureTransducer* pt1,
     const PressureTransducer* pt2,
+    const PressureTransducer* pt3,
     uint64_t unixTimeMs,
     uint8_t stateId,
     float commandedMotorRotations,
     uint32_t droppedRecords,
     bool timeValid = false,
     float commandedThrustLbf = 0.0f,
-    bool backlashCompensated = false
+    bool backlashCompensated = false,
+    const PidController* pidController = nullptr,
+    const LogControlData* controlData = nullptr
 ) {
     memset(out, 0, sizeof(out));
 
     out[0] = logFormatVersion;
     out[1] = stateId;  // Numeric state instead of a string
 
+    const bool hasPidOutput = pidController && pidController->has_last_output();
     // Presence flags: absent fields stay zero, but are marked absent.
     out[2] = (pt1 ? 1 : 0)
            | (pt2 ? 2 : 0)
            | (motorState ? 4 : 0)
            | (timeValid ? 8 : 0)
-           | (backlashCompensated ? 16 : 0);
+           | (backlashCompensated ? 16 : 0)
+           | (pt3 ? 32 : 0)
+           | (hasPidOutput ? 64 : 0)
+           | (hasPidOutput && controlData && controlData->pidOutputClamped ? 128 : 0);
 
     put_u64(out + 4, unixTimeMs);
 
     if (pt1) put_float(out + 12, pt1->get_pressure(false));
     if (pt2) put_float(out + 16, pt2->get_pressure(false));
+    if (pt3) put_float(out + 20,
+        controlData && controlData->pt3PressurePsi
+            ? *controlData->pt3PressurePsi : pt3->get_pressure(false));
 
     if (motorState) {
         out[3] = (motorState->has_status_0() ? 1 : 0)
@@ -73,24 +111,26 @@ static inline void make_log_record(
                | (motorState->is_fresh(
                       Config::kTelemetryTimeoutMs) ? 8 : 0);
 
-        put_float(out + 20,
+        put_float(out + 24,
             motorState->get_position() * 360.0f / Config::kGearRatio);
-        put_float(out + 24, motorState->get_temperature());
-        put_float(out + 28, motorState->get_applied_output_percent());
+        out[28] = log_signed_unit(motorState->get_temperature(), -127, 127);
+        out[29] = log_signed_unit(motorState->get_applied_output_percent(), -100, 100);
+        out[30] = log_current_amps(motorState->get_current_raw() / 27.3f);
+        // Byte 31 stays free and zero.
         put_float(out + 32, motorState->get_rpm());
         put_float(out + 36, motorState->get_voltage_raw() / 136.5f);
-        put_float(out + 40, motorState->get_current_raw() / 27.3f);
-
-        // Preserve these existing fields as milliseconds since boot.
-        put_u32(out + 48, motorState->get_last_status_0_time());
-        put_u32(out + 52, motorState->get_last_status_2_time());
     }
 
-    put_float(out + 44,
+    put_float(out + 40,
         commandedMotorRotations * 360.0f / Config::kGearRatio);
-    put_u32(out + 56, droppedRecords);
+    put_u32(out + 44, droppedRecords);
 
-    put_float(out + 60, commandedThrustLbf);
+    put_float(out + 48, commandedThrustLbf);
+    if (hasPidOutput) {
+        put_float(out + 52, pidController->last_p_output() * 360.0f / Config::kGearRatio);
+        put_float(out + 56, pidController->last_i_output() * 360.0f / Config::kGearRatio);
+        put_float(out + 60, pidController->last_d_output() * 360.0f / Config::kGearRatio);
+    }
 }
 
 // One logger per firmware translation unit (each environment builds one source).
@@ -259,12 +299,18 @@ static inline void wait_for_unix_time() {
     }
 }
 
+// Use the same pre-backlash target and applied-offset flag as the motor command.
+// PID getters copy the cached terms; this never advances the controller.
 static inline bool log_row(const MotorState* motorState,
                    const PressureTransducer* pt1,
                    const PressureTransducer* pt2,
+                   const PressureTransducer* pt3,
                    unsigned long nowMs, const String& stateName,
-                   float commandedMotorRotations, bool finalRow = false, bool backlashCompensated = false,
-                   float commandedThrustLbf = 0.0f) {
+                   float commandedMotorRotations, bool finalRow = false,
+                   bool backlashCompensated = false,
+                   float commandedThrustLbf = 0.0f,
+                   const PidController* pidController = nullptr,
+                   const LogControlData* controlData = nullptr) {
     sdLog.update_clock(nowMs);
     if (!sdLog.is_active()) {
         if (finalRow && sdLog.is_open()) sdLog.close();
@@ -278,9 +324,10 @@ static inline bool log_row(const MotorState* motorState,
         return false;
     }
     LogRecord record;
-    make_log_record(record.bytes, motorState, pt1, pt2, sdLog.unix_time(),
+    make_log_record(record.bytes, motorState, pt1, pt2, pt3, sdLog.unix_time(),
                   log_state_id(stateName), commandedMotorRotations, sdLog.dropped(),
-                  sdLog.has_unix_time(), commandedThrustLbf, backlashCompensated);
+                  sdLog.has_unix_time(), commandedThrustLbf, backlashCompensated,
+                  pidController, controlData);
     const bool queued = sdLog.enqueue(record);
     if (finalRow) {
         const bool closed = sdLog.close();

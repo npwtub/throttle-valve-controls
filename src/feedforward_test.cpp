@@ -40,6 +40,7 @@ CanControl::SparkMax motor(mcp2515, Config::kLoxMotorId);
 MotorState motorState(Config::kLoxMotorId);
 PressureTransducer pt1(Config::kPt1InputPin, Config::kPt1MaxPsi, Config::kPtMinVoltage, Config::kPtMaxVoltage);
 PressureTransducer pt2(Config::kPt2InputPin, Config::kPt2MaxPsi, Config::kPtMinVoltage, Config::kPtMaxVoltage);
+PressureTransducer pt3(Config::kPt3InputPin, Config::kPt3MaxPsi, Config::kPtMinVoltage, Config::kPtMaxVoltage);
 
 enum class TestState {
     InProgress,
@@ -185,15 +186,13 @@ void loop() {
     // Both the motor API and the logger take MOTOR ROTATIONS, not valve degrees.
     const float targetMotorRotations = outputAngleDeg * Config::kGearRatio / 360.0;
     const double backlashOffset = utils::backlashCompensation(motorState, targetMotorRotations, false);
-    // const double backlashOffset = 0.0;
     if (motor.set_position(targetMotorRotations + backlashOffset) != MCP2515::ERROR_OK) ++controlErrors;
     if (CanControl::send_heartbeat(mcp2515, CanControl::default_heartbeat()) !=
             MCP2515::ERROR_OK) ++heartbeatErrors;
 
     const bool testFinished = (testState == TestState::Done) || (testState == TestState::Failed);
-    log_row(&motorState, &pt1, &pt2, millis(), state_name(), targetMotorRotations,
-            testFinished && !finalReportSent, 
-            utils::backlashCompensation(motorState, targetMotorRotations, false) != 0.0, commandedThrustLbf);
+    log_row(&motorState, &pt1, &pt2, &pt3, millis(), state_name(), targetMotorRotations,
+            testFinished && !finalReportSent, backlashOffset != 0.0, commandedThrustLbf);
     finish_control_cycle();
 
     if (testFinished && !finalReportSent) {
